@@ -196,6 +196,7 @@ const FEATURES = [];
 const PLANCFG = {};
 const SUB = { mine: null, pending: [] };
 let plansView = null;
+let adminView = null;
 const DEFAULT_FEATURES = [
   { id: 'd1', name: 'Berichten, vrienden en servers', free: true, plus: true, prime: true, order: 1 },
   { id: 'd2', name: 'Eigen profielkleuren en banner', free: false, plus: true, prime: true, order: 2 },
@@ -436,7 +437,7 @@ function teardown() {
   BADGES.length = 0; FEATURES.length = 0; SUB.mine = null; SUB.pending = []; SUBS.list = []; SUBS.ready = false;
   resetPrivateCfg();
   for (const k of Object.keys(PLANCFG)) delete PLANCFG[k];
-  stopUnread(); stopUpgWatch(); renderPremiumBadge();
+  stopUnread(); stopAdminWatch(); renderPremiumBadge();
   Object.values(S.metaUnsub).forEach(u => u());
   Object.assign(S, { me: null, profile: null, friendships: [], meta: {}, metaUnsub: {}, servers: [], activeDm: null, activeServer: null, started: false, tab: 'dms', metaSeen: {}, reqSeen: null, settingsSeeded: false });
   for (const k of Object.keys(PROF)) delete PROF[k];
@@ -453,13 +454,6 @@ function renderTabs() {
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
   const n = S.me ? incoming().length : 0;
   const bd = $('#reqBadge'); bd.hidden = !n; bd.textContent = n;
-  const mod = !!S.me && isMod(), up = $('#upgradeTab');
-  if (up) {
-    up.hidden = !mod;
-    const un = mod ? othersPending().length : 0, ub = $('#upBadge');
-    ub.hidden = !un; ub.textContent = un > 9 ? '9+' : un;
-  }
-  if (S.tab === 'upgrade' && S.me && !mod && BADGES.length) { S.tab = 'dms'; renderSidebar(true); showMain(); return; }
   $('#settingsBtn').classList.toggle('active', S.tab === 'settings');
 }
 
@@ -543,11 +537,9 @@ function fillSidebar(list, foot) {
 /* =====================  hoofdvlak  ===================== */
 function showMain() {
   unsubChat();
-  if (S.tab !== 'upgrade') stopUpgWatch();
   if (S.tab === 'friends') { renderFriends(); setView('main'); return; }
   if (S.tab === 'requests') { renderRequests(); setView('main'); return; }
   if (S.tab === 'settings') { renderSettings(); setView('main'); return; }
-  if (S.tab === 'upgrade' && isMod()) { renderUpgrade(); setView('main'); return; }
   const type = S.tab === 'dms' ? 'dm' : 'server';
   const id = type === 'dm' ? S.activeDm : S.activeServer;
   if (id && (type === 'dm' ? dmInfo(id) : serverInfo(id))) { openChat(type, id); setView('main'); }
@@ -1178,7 +1170,7 @@ function renderRequestLists() {
 
 /* =====================  servers  ===================== */
 const dlg = $('#dlg');
-const openDialog = (...nodes) => { dlg.classList.remove('wide', 'plans'); dlg.replaceChildren(h('div', { class: 'dlg-in' }, ...nodes)); if (!dlg.open) dlg.showModal(); };
+const openDialog = (...nodes) => { dlg.classList.remove('wide', 'plans', 'admin'); dlg.replaceChildren(h('div', { class: 'dlg-in' }, ...nodes)); if (!dlg.open) dlg.showModal(); };
 const closeDialog = () => { if (dlg.open) dlg.close(); };
 dlg.addEventListener('click', e => { if (e.target === dlg) closeDialog(); });
 
@@ -1526,7 +1518,7 @@ async function openMembers() {
   await Promise.all(s0.members.map(nameOf));
   if (membersView) render();
 }
-dlg.addEventListener('close', () => { membersView = null; plansView = null; syncSubsWatch(); });
+dlg.addEventListener('close', () => { membersView = null; plansView = null; adminView = null; syncSubsWatch(); });
 
 /* =====================  instellingen, meldingen & profiel  =====================
    Instellingen (thema, achtergrond, meldingen, privacy) staan in Firestore: settings/{uid}, dus op al je apparaten hetzelfde.
@@ -1874,7 +1866,6 @@ function linkChip(l, onRemove) {
 /* --- reageren op profielwijzigingen van anderen (naam/foto) --- */
 function onProfChange(u) {
   refreshAvatars(); scheduleSidebar();
-  if (S.tab === 'upgrade') upgRender();
   if (S.tab === 'settings') paintCredits();
   if (S.tab === 'friends') renderFriendList();
   if (S.chat?.type === 'dm' && dmInfo(S.chat.id)?.uid === u) {
@@ -2276,8 +2267,10 @@ const isMod = isAdmin;
 const othersPending = () => SUB.pending.filter(r => r.uid !== S.me?.uid || isAdmin());   // alleen een admin mag zijn eigen aanvraag goedkeuren
 
 function renderPremiumBadge() {
-  const el = $('#premBadge'); if (!el) return;
-  const n = S.me && isMod() ? othersPending().length : 0;
+  const btn = $('#adminBtn'); if (!btn) return;
+  const mod = !!S.me && isMod();
+  btn.hidden = !mod;
+  const n = mod ? othersPending().length : 0, el = $('#admBadge');
   el.hidden = !n; el.textContent = unreadText(n);
 }
 
@@ -2314,15 +2307,15 @@ function syncModWatch() {
         for (const ch of snap.docChanges()) {
           if (ch.type !== 'added' || ch.doc.metadata.hasPendingWrites || ch.doc.id === S.me?.uid) continue;
           const d = ch.doc.data();
-          inform(d.username || 'Iemand', `vraagt ${TIERS[d.tier]?.name || 'een abonnement'} aan — bekijk het formulier bij Upgrade.`, () => setTab('upgrade'));
+          inform(d.username || 'Iemand', `vraagt ${TIERS[d.tier]?.name || 'een abonnement'} aan — bekijk het formulier in het Admin-paneel.`, () => openAdmin('requests'));
         }
       }
       primed = true;
-      renderPremiumBadge(); renderTabs(); upgRender(); plansView?.render();
+      renderPremiumBadge(); adminView?.render(); plansView?.render();
     }, () => {});
   } else if (!want && S.unsub.mods) {
     S.unsub.mods(); S.unsub.mods = null; SUB.pending = [];
-    renderPremiumBadge(); renderTabs(); plansView?.render();
+    renderPremiumBadge(); adminView?.render(); plansView?.render();
   }
 }
 
@@ -2363,18 +2356,28 @@ async function adminSetTier(u, tier, note, btns) {
   } catch (e) { toast(fbErr(e)); btns.forEach(b => { b.disabled = false; }); }
 }
 
-// admin: live lijst van iedereen met Plus of Prime (alleen zolang het Premium-venster openstaat)
+// admin-paneel: live lijst van alle mensen + recent beoordeelde aanvragen (alleen zolang het paneel openstaat)
 const SUBS = { list: [], ready: false };
+const UPG = { done: [], ready: false };
+function stopAdminWatch() {
+  S.unsub.subs?.(); S.unsub.subs = null; SUBS.list = []; SUBS.ready = false;
+  S.unsub.upg?.(); S.unsub.upg = null; UPG.done = []; UPG.ready = false;
+}
 function syncSubsWatch() {
-  const want = !!plansView && !!S.me && isAdmin();
-  if (want && !S.unsub.subs) {
-    S.unsub.subs = onSnapshot(query(collection(db, 'users'), where('tier', 'in', ['plus', 'prime'])), snap => {
+  const want = !!adminView && !!S.me && isAdmin();
+  if (!want) { if (S.unsub.subs || S.unsub.upg) stopAdminWatch(); return; }
+  if (!S.unsub.subs) {
+    S.unsub.subs = onSnapshot(query(collection(db, 'users'), orderBy('usernameLower'), limit(500)), snap => {
       SUBS.list = snap.docs.map(d => { PROF[d.id] = d.data(); return { uid: d.id, ...d.data() }; });
       SUBS.ready = true;
-      refreshAvatars(); plansView?.render();
+      refreshAvatars(); adminView?.render();
     }, e => toast(fbErr(e)));
-  } else if (!want && S.unsub.subs) {
-    S.unsub.subs(); S.unsub.subs = null; SUBS.list = []; SUBS.ready = false;
+  }
+  if (!S.unsub.upg) {
+    S.unsub.upg = onSnapshot(query(collection(db, 'subscriptions'), where('status', 'in', ['approved', 'rejected']), limit(40)), snap => {
+      UPG.done = snap.docs.map(d => ({ uid: d.id, ...d.data({ serverTimestamps: 'estimate' }) })).filter(r => r.requestedAt);
+      UPG.ready = true; adminView?.render();
+    }, e => toast(fbErr(e)));
   }
 }
 
@@ -2400,7 +2403,7 @@ const featSort = (a, b) => (Number.isFinite(+a.order) ? +a.order : 999) - (Numbe
 const featureRows = () => [...(FEATURES.length ? FEATURES : DEFAULT_FEATURES)].filter(f => f && f.name).sort(featSort);
 
 // admin: de tabel "welke functie zit in welk abonnement" aanpassen (Firestore -> features)
-function buildFeatureEditor() {
+function buildFeatureEditor(onDone) {
   const seeded = !FEATURES.length;   // nog niets in Firestore: dan slaan we alle standaardrijen op
   const rows = featureRows().map(f => ({ id: f.id, orig: f, name: String(f.name), free: f.free, plus: f.plus, prime: f.prime }));
   const gone = [];
@@ -2434,7 +2437,7 @@ function buildFeatureEditor() {
     }));
   };
 
-  const close = () => { plansView.editing = false; plansView.editor = null; plansView.render(); };
+  const close = () => onDone?.();
   const add = h('button', { class: 'ghost sm', type: 'button', text: '+ Functie toevoegen', onclick: () => {
     rows.push({ id: null, orig: null, name: '', free: false, plus: false, prime: false }); paint();
     list.lastElementChild?.querySelector('.fe-name')?.focus();
@@ -2484,7 +2487,7 @@ function subscriberRow(u) {
   };
   return h('div', { class: 'row plan-req sub-row' },
     avatar(u.uid, u.username, 40, true),
-    h('span', { class: 'item-text' }, h('b', { text: u.username || 'Onbekend' }), h('small', { text: TIERS[cur].name })),
+    h('span', { class: 'item-text' }, h('b', { text: u.username || 'Onbekend' }), h('small', { text: TIERS[cur].name + (BADGES.some(b => b.id === 'moderator' && Array.isArray(b.users) && b.users.includes(u.uid)) ? ' · moderator' : '') })),
     h('div', { class: 'row-actions' }, sel, go),
     note);
 }
@@ -2503,11 +2506,8 @@ function buildPlans() {
   const showNote = sub && sub.status !== 'pending' && sub.note && (sub.status === 'approved' ? sub.tier === mine : mine !== sub.tier);
   out.push(h('p', { class: 'plan-status ' + st[0] }, st[1], showNote ? h('span', { class: 'plan-note', text: 'Bericht van de moderator: ' + sub.note }) : null));
 
-  // vergelijking (of, voor admins in bewerkmodus, de editor)
-  if (plansView?.editing) {
-    plansView.editor ||= buildFeatureEditor();
-    out.push(plansView.editor);
-  } else {
+  // vergelijking
+  {
     const rows = featureRows();
     const grid = h('div', { class: 'plan-grid' }, h('div', { class: 'pg-h pg-corner' }));
     for (const t of TIER_ORDER) {
@@ -2523,67 +2523,16 @@ function buildPlans() {
     grid.append(h('div', { class: 'pg-a pg-corner' }));
     for (const t of TIER_ORDER) grid.append(h('div', { class: 'pg-a' + (mine === t ? ' cur' : '') }, planAction(t, mine, sub)));
     out.push(h('div', { class: 'plan-scroll' }, grid));
-    if (isAdmin()) out.push(h('button', { class: 'ghost sm plan-edit', type: 'button', text: 'Tabel bewerken', onclick: () => { plansView.editing = true; plansView.editor = null; plansView.render(); } }));
   }
 
   out.push(h('p', { class: 'plan-how', text: 'Zo werkt het: klik bij een versie op Aanvragen en vul het formulier in. Een moderator beoordeelt je aanvraag, daarna wordt je abonnement geactiveerd en zie je dat hier.' }));
 
-  // moderators + admins: aanvragen beoordelen (met optioneel bericht)
-  if (isMod()) {
-    const list = othersPending().sort((a, b) => (a.requestedAt?.toMillis?.() || 0) - (b.requestedAt?.toMillis?.() || 0));
-    loadProfiles(list.map(r => r.uid));
-    out.push(h('h4', { class: 'plans-sec', text: `Aanvragen ter goedkeuring — ${list.length}` }));
-    if (!list.length) out.push(h('p', { class: 'hint', text: 'Er zijn geen openstaande aanvragen.' }));
-    for (const r of list) {
-      const d = r.requestedAt?.toDate?.();
-      const ok = h('button', { class: 'btn-ok', type: 'button', text: 'Goedkeuren' });
-      const no = h('button', { class: 'btn-no', type: 'button', text: 'Afwijzen' });
-      const note = h('input', { class: 'inp', maxlength: 200, autocomplete: 'off', placeholder: 'Bericht aan de gebruiker (optioneel) — bijv. waarom je goedkeurt of afwijst' });
-      ok.onclick = () => decideRequest(r, true, [ok, no], note.value);
-      no.onclick = () => decideRequest(r, false, [ok, no], note.value);
-      out.push(h('div', { class: 'row plan-req' },
-        avatar(r.uid, r.username, 40, true),
-        h('span', { class: 'item-text' }, h('b', { text: r.username || 'Onbekend' }),
-          h('small', { text: `vraagt ${TIERS[r.tier]?.name || 'een abonnement'} aan` + (d ? ` · ${dayLabel(d)} ${tf.format(d)}` : '') + (r.uid === S.me.uid ? ' · jouw aanvraag' : '') })),
-        h('div', { class: 'row-actions' }, ok, no),
-        note));
-    }
-  }
-
-  // admins: iedereen met Plus of Prime beheren
-  if (isAdmin()) {
-    const subs = [...SUBS.list].sort((a, b) => TIER_ORDER.indexOf(tierKey(b)) - TIER_ORDER.indexOf(tierKey(a)) || String(a.username).localeCompare(String(b.username)));
-    out.push(h('h4', { class: 'plans-sec', text: `Abonnees beheren — ${subs.length}` }));
-    if (!SUBS.ready) out.push(h('p', { class: 'hint', text: 'Laden…' }));
-    else if (!subs.length) out.push(h('p', { class: 'hint', text: 'Niemand heeft op dit moment Infinitum+ of Infinitum Prime.' }));
-    for (const u of subs) out.push(subscriberRow(u));
-  }
   return out;
 }
 
-/* =====================  Upgrade-tab (alleen moderators)  =====================
-   Hier komen de ingevulde formulieren van upgrade.html binnen (subscriptions/<uid>.form).
-   Openstaande aanvragen staan bovenaan, daaronder de laatst beoordeelde. */
-const UPG = { done: [], ready: false, dirty: false };
-const PAY_LABEL = { ideal: 'iDEAL', paypal: 'PayPal', card: 'Creditcard', other: 'Anders', unknown: 'Weet ik nog niet' };
-function stopUpgWatch() {
-  S.unsub.upg?.(); S.unsub.upg = null;
-  UPG.done = []; UPG.ready = false; UPG.dirty = false;
-}
-function syncUpgWatch() {
-  if (S.unsub.upg || !S.me || !isMod()) return;
-  S.unsub.upg = onSnapshot(query(collection(db, 'subscriptions'), where('status', 'in', ['approved', 'rejected']), limit(40)), snap => {
-    UPG.done = snap.docs.map(d => ({ uid: d.id, ...d.data({ serverTimestamps: 'estimate' }) })).filter(r => r.requestedAt);
-    UPG.ready = true; upgRender();
-  }, e => toast(fbErr(e)));
-}
-const upgInField = () => { const m = $('#upgBody'); return !!m && m.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName); };
-function upgRender() {
-  if (S.tab !== 'upgrade' || !$('#upgBody')) return;
-  if (upgInField()) { UPG.dirty = true; return; }   // niet opnieuw tekenen terwijl een moderator een bericht typt
-  UPG.dirty = false;
-  $('#upgBody').replaceChildren(...buildUpgrade());
-}
+/* =====================  Admin-paneel (knop "Admin", alleen voor moderators)  =====================
+   Tabbladen: Aanvragen (formulieren van upgrade.html beoordelen), Mensen (iedereen beheren), Tabel (functies per versie).
+   Hier komen later ook de andere admin-onderdelen. */
 const fmtWhen = (t) => { const d = t?.toDate?.(); return d ? `${dayLabel(d)} ${tf.format(d)}` : ''; };
 
 function upgCard(r) {
@@ -2607,22 +2556,21 @@ function upgCard(r) {
     f ? h('div', { class: 'upg-form' },
       field('Waarom wil de gebruiker upgraden?', f.reason),
       feats.length ? h('div', { class: 'upg-f' }, h('small', { text: 'Wil vooral gebruiken' }), h('div', { class: 'chips' }, feats.map(x => h('span', { class: 'upg-chip', text: x })))) : null,
-      field('Betaalwijze', PAY_LABEL[f.payment] || ''),
       field('Opmerking', f.extra))
       : h('p', { class: 'hint', text: 'Bij deze aanvraag is geen formulier ingevuld.' }),
     h('div', { class: 'upg-act' }, note, ok, no));
 }
 
-function buildUpgrade() {
+function buildRequests() {
   const out = [];
   const pend = othersPending().sort((a, b) => (a.requestedAt?.toMillis?.() || 0) - (b.requestedAt?.toMillis?.() || 0));
   loadProfiles(pend.map(r => r.uid));
-  out.push(h('h3', { class: 'sec', text: `Openstaande aanvragen — ${pend.length}` }));
+  out.push(h('h4', { class: 'plans-sec', text: `Openstaande aanvragen — ${pend.length}` }));
   if (!pend.length) out.push(h('p', { class: 'hint', text: 'Er zijn geen openstaande aanvragen.' }));
   pend.forEach(r => out.push(upgCard(r)));
 
   const done = [...UPG.done].sort((a, b) => (b.decidedAt?.toMillis?.() || 0) - (a.decidedAt?.toMillis?.() || 0));
-  out.push(h('h3', { class: 'sec', text: 'Recent beoordeeld' }));
+  out.push(h('h4', { class: 'plans-sec', text: 'Recent beoordeeld' }));
   if (!UPG.ready) out.push(h('p', { class: 'hint', text: 'Laden…' }));
   else if (!done.length) out.push(h('p', { class: 'hint', text: 'Nog niets beoordeeld.' }));
   for (const r of done) {
@@ -2636,15 +2584,62 @@ function buildUpgrade() {
   return out;
 }
 
-function renderUpgrade() {
-  $('#main').replaceChildren(h('div', { class: 'pane upg' },
-    h('h2', { text: 'Upgrade-aanvragen' }),
-    h('p', { class: 'sub', text: 'Formulieren van mensen die een abonnement willen. Keur ze goed of wijs ze af; de gebruiker krijgt een melding.' }),
-    h('div', { id: 'upgBody' })));
-  $('#upgBody').addEventListener('focusout', () => setTimeout(() => { if (UPG.dirty && !upgInField()) upgRender(); }, 0));
-  syncUpgWatch();
-  upgRender();
+function openAdmin(tab = 'requests') {
+  if (!S.me || !isAdmin()) return;
+  const defs = [['requests', 'Aanvragen'], ['people', 'Mensen'], ['table', 'Tabel']];
+  const btns = defs.map(([k, t]) => h('button', { class: 'adm-tab', type: 'button', onclick: () => show(k) }, t,
+    k === 'requests' ? h('span', { class: 'unread', hidden: true }) : null));
+  const tabs = h('div', { class: 'adm-tabs', role: 'tablist' }, btns);
+  const pane = h('div', { class: 'adm-pane' });
+  const search = h('input', { class: 'inp', type: 'search', placeholder: 'Zoek een gebruiker…', autocomplete: 'off', 'aria-label': 'Zoek een gebruiker' });
+  const count = h('h4', { class: 'plans-sec' });
+  const list = h('div');
+  const reqBox = h('div');
+  let cur = tab, dirty = false;
+
+  const paintPeople = () => {
+    const q = search.value.trim().toLowerCase();
+    const rows = SUBS.list.filter(u => !q || String(u.username || '').toLowerCase().includes(q))
+      .sort((a, b) => TIER_ORDER.indexOf(tierKey(b)) - TIER_ORDER.indexOf(tierKey(a)) || String(a.username).localeCompare(String(b.username)));
+    count.textContent = `Mensen — ${rows.length}${q ? ' gevonden' : ''}`;
+    if (!SUBS.ready) list.replaceChildren(h('p', { class: 'hint', text: 'Laden…' }));
+    else if (!rows.length) list.replaceChildren(h('p', { class: 'hint', text: 'Niemand gevonden.' }));
+    else list.replaceChildren(...rows.slice(0, 100).map(subscriberRow),
+      ...(rows.length > 100 ? [h('p', { class: 'hint', text: 'De eerste 100 worden getoond. Gebruik het zoekveld om iemand te vinden.' })] : []));
+  };
+  search.addEventListener('input', paintPeople);
+
+  const inField = () => pane.contains(document.activeElement) && document.activeElement !== search && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  const render = () => {
+    const n = othersPending().length, b = btns[0].lastChild;
+    b.hidden = !n; b.textContent = unreadText(n);
+    if (cur === 'table') return;
+    if (inField()) { dirty = true; return; }   // niet opnieuw tekenen terwijl een moderator typt
+    dirty = false;
+    if (cur === 'requests') reqBox.replaceChildren(...buildRequests());
+    else paintPeople();
+  };
+  const show = (k) => {
+    cur = k; dirty = false;
+    btns.forEach((b, i) => b.classList.toggle('active', defs[i][0] === k));
+    if (k === 'requests') pane.replaceChildren(reqBox);
+    else if (k === 'people') pane.replaceChildren(search, count, list);
+    else pane.replaceChildren(buildFeatureEditor(() => show('table')));
+    render();
+  };
+  pane.addEventListener('focusout', () => setTimeout(() => { if (dirty && !inField()) render(); }, 0));
+
+  adminView = { render };
+  openDialog(
+    h('h3', { text: 'Admin' }),
+    h('p', { class: 'sub', text: 'Beheer alle Infinitum-gebruikers en beoordeel upgrade-aanvragen.' }),
+    tabs, pane,
+    h('div', { class: 'dlg-actions' }, h('button', { class: 'ghost', type: 'button', onclick: closeDialog, text: 'Sluiten' })));
+  dlg.classList.add('admin');
+  syncSubsWatch();
+  show(tab);
 }
+$('#adminBtn').addEventListener('click', () => openAdmin());
 
 function openPlans() {
   if (!S.me) return;
