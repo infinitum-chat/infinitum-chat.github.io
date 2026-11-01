@@ -396,9 +396,10 @@ function startListeners() {
   // mijn eigen abonnementsaanvraag
   S.unsub.sub = onSnapshot(doc(db, 'subscriptions', uid), s => {
     SUB.mine = s.exists() ? s.data({ serverTimestamps: 'estimate' }) : null;
-    announceDecision(); plansView?.render();
+    plansView?.render();
   }, () => {});
 
+  startInbox(uid);
   startPresence();
 }
 
@@ -433,7 +434,8 @@ function unsubChat() { stopTypingWatch(); stopReadWatch(); clearTimeout(S.chat?.
 function teardown() {
   stopPresence();
   unsubChat();
-  for (const k of ['profile', 'friends', 'servers', 'config', 'badges', 'features', 'plans', 'sub', 'mods', 'settings', 'subs']) { S.unsub[k]?.(); S.unsub[k] = null; }
+  for (const k of ['profile', 'friends', 'servers', 'config', 'badges', 'features', 'plans', 'sub', 'mods', 'settings', 'subs', 'upg', 'inbox']) { S.unsub[k]?.(); S.unsub[k] = null; }
+  adminView = null; INBOX.list = []; INBOX.ready = false;
   BADGES.length = 0; FEATURES.length = 0; SUB.mine = null; SUB.pending = []; SUBS.list = []; SUBS.ready = false;
   resetPrivateCfg();
   for (const k of Object.keys(PLANCFG)) delete PLANCFG[k];
@@ -455,6 +457,8 @@ function renderTabs() {
   const n = S.me ? incoming().length : 0;
   const bd = $('#reqBadge'); bd.hidden = !n; bd.textContent = n;
   $('#settingsBtn').classList.toggle('active', S.tab === 'settings');
+  $('#adminBtn')?.classList.toggle('active', S.tab === 'admin');
+  $('#inboxBtn')?.classList.toggle('active', S.tab === 'inbox');
 }
 
 function renderUserCard() {
@@ -485,6 +489,14 @@ function renderSidebar(animate = false) {
     list.dataset.mode = 'settings'; sideSig = '';
     buildSettingsNav(list, foot);
     swapAnim(list, foot);
+    return;
+  }
+  if (S.tab === 'admin' || S.tab === 'inbox') {
+    $('#sideTitle').textContent = S.tab === 'admin' ? 'Admin' : 'Meldingen';
+    const first = list.dataset.mode !== S.tab;
+    list.dataset.mode = S.tab; sideSig = '';
+    buildPageNav(list, foot);
+    if (first) swapAnim(list, foot);
     return;
   }
   const had = list.dataset.mode; delete list.dataset.mode;
@@ -537,9 +549,13 @@ function fillSidebar(list, foot) {
 /* =====================  hoofdvlak  ===================== */
 function showMain() {
   unsubChat();
+  if (S.tab === 'admin' && BADGES.length && !isAdmin()) { S.tab = 'dms'; renderTabs(); renderSidebar(true); }
+  if (S.tab !== 'admin' && adminView) { adminView = null; syncSubsWatch(); }
   if (S.tab === 'friends') { renderFriends(); setView('main'); return; }
   if (S.tab === 'requests') { renderRequests(); setView('main'); return; }
   if (S.tab === 'settings') { renderSettings(); setView('main'); return; }
+  if (S.tab === 'admin') { renderAdmin(); setView('main'); return; }
+  if (S.tab === 'inbox') { renderInbox(); setView('main'); return; }
   const type = S.tab === 'dms' ? 'dm' : 'server';
   const id = type === 'dm' ? S.activeDm : S.activeServer;
   if (id && (type === 'dm' ? dmInfo(id) : serverInfo(id))) { openChat(type, id); setView('main'); }
@@ -1518,7 +1534,7 @@ async function openMembers() {
   await Promise.all(s0.members.map(nameOf));
   if (membersView) render();
 }
-dlg.addEventListener('close', () => { membersView = null; plansView = null; adminView = null; syncSubsWatch(); });
+dlg.addEventListener('close', () => { membersView = null; plansView = null; });
 
 /* =====================  instellingen, meldingen & profiel  =====================
    Instellingen (thema, achtergrond, meldingen, privacy) staan in Firestore: settings/{uid}, dus op al je apparaten hetzelfde.
@@ -2267,11 +2283,15 @@ const isMod = isAdmin;
 const othersPending = () => SUB.pending.filter(r => r.uid !== S.me?.uid || isAdmin());   // alleen een admin mag zijn eigen aanvraag goedkeuren
 
 function renderPremiumBadge() {
-  const btn = $('#adminBtn'); if (!btn) return;
-  const mod = !!S.me && isMod();
-  btn.hidden = !mod;
-  const n = mod ? othersPending().length : 0, el = $('#admBadge');
-  el.hidden = !n; el.textContent = unreadText(n);
+  const btn = $('#adminBtn'), mod = !!S.me && isMod();
+  if (btn) {
+    btn.hidden = !mod;
+    const n = mod ? othersPending().length : 0, el = $('#admBadge');
+    el.hidden = !n; el.textContent = unreadText(n);
+  }
+  const ib = $('#inboxBadge');
+  if (ib) { const u = S.me ? unreadInbox() : 0; ib.hidden = !u; ib.textContent = unreadText(u); }
+  if (S.tab === 'admin' || S.tab === 'inbox') scheduleSidebar();
 }
 
 // melding: toast als je kijkt, anders een bureaubladmelding
@@ -2279,21 +2299,6 @@ function inform(title, text, go = openPlans) {
   if (manualState() === 'dnd') return;
   if (isVisible() && document.hasFocus()) { toast(`${title}: ${text}`); return; }
   notify('requests', title, text, go);
-}
-
-// jouw aanvraag is goedgekeurd of afgewezen -> je krijgt eenmalig bericht (ook als je offline was)
-function announceDecision() {
-  const sub = SUB.mine;
-  if (!S.me || !sub || sub.status === 'pending' || !sub.decidedAt?.toMillis) return;
-  if (manualState() === 'dnd') return;
-  const stamp = sub.status + ':' + sub.decidedAt.toMillis();
-  let last = ''; try { last = localStorage.getItem('infinitum-subseen-' + S.me.uid) || ''; } catch {}
-  if (last === stamp) return;
-  try { localStorage.setItem('infinitum-subseen-' + S.me.uid, stamp); } catch {}
-  const name = TIERS[sub.tier]?.name || 'Abonnement';
-  const note = sub.note ? ` Bericht: ${sub.note}` : '';
-  if (sub.status === 'approved') inform(name, (sub.tier === 'free' ? 'je abonnement is stopgezet.' : 'is geactiveerd!') + note);
-  else inform(name, 'je aanvraag is helaas afgewezen.' + note);
 }
 
 // moderators luisteren naar alle openstaande aanvragen
@@ -2307,7 +2312,7 @@ function syncModWatch() {
         for (const ch of snap.docChanges()) {
           if (ch.type !== 'added' || ch.doc.metadata.hasPendingWrites || ch.doc.id === S.me?.uid) continue;
           const d = ch.doc.data();
-          inform(d.username || 'Iemand', `vraagt ${TIERS[d.tier]?.name || 'een abonnement'} aan — bekijk het formulier in het Admin-paneel.`, () => openAdmin('requests'));
+          inform(d.username || 'Iemand', `vraagt ${TIERS[d.tier]?.name || 'een abonnement'} aan — bekijk het formulier bij Admin.`, () => goPage('admin', 'requests'));
         }
       }
       primed = true;
@@ -2334,8 +2339,12 @@ async function decideRequest(r, ok, btns, note) {
   btns.forEach(b => { b.disabled = true; });
   try {
     const batch = writeBatch(db);
-    batch.update(doc(db, 'subscriptions', r.uid), { status: ok ? 'approved' : 'rejected', decidedBy: S.me.uid, decidedAt: serverTimestamp(), note: String(note || '').trim().slice(0, 200) });
+    const msg = String(note || '').trim().slice(0, 200);
+    batch.update(doc(db, 'subscriptions', r.uid), { status: ok ? 'approved' : 'rejected', decidedBy: S.me.uid, decidedAt: serverTimestamp(), note: msg });
     if (ok) batch.update(doc(db, 'users', r.uid), { tier: r.tier });
+    batch.set(doc(collection(db, 'notifications')), notifDoc(r.uid, ok ? 'sub_approved' : 'sub_rejected',
+      ok ? `${TIERS[r.tier]?.name} is geactiveerd` : `Je aanvraag voor ${TIERS[r.tier]?.name} is afgewezen`,
+      msg || (ok ? 'Je aanvraag is goedgekeurd. Veel plezier!' : 'Je aanvraag is helaas niet goedgekeurd. Je kunt hem opnieuw aanvragen.')));
     await batch.commit();
     toast(ok ? `${r.username || 'Gebruiker'} heeft nu ${TIERS[r.tier]?.name}.` : `Aanvraag van ${r.username || 'gebruiker'} afgewezen.`);
   } catch (e) { toast(fbErr(e)); btns.forEach(b => { b.disabled = false; }); }
@@ -2351,6 +2360,10 @@ async function adminSetTier(u, tier, note, btns) {
       decidedBy: S.me.uid, decidedAt: serverTimestamp(), note: String(note || '').trim().slice(0, 200)
     });
     batch.update(doc(db, 'users', u.uid), { tier });
+    const msg = String(note || '').trim().slice(0, 200);
+    batch.set(doc(collection(db, 'notifications')), notifDoc(u.uid, 'sub_changed',
+      tier === 'free' ? 'Je abonnement is stopgezet' : `Je hebt nu ${TIERS[tier].name}`,
+      msg || (tier === 'free' ? 'Een moderator heeft je abonnement stopgezet.' : 'Een moderator heeft je abonnement gewijzigd.')));
     await batch.commit();
     toast(tier === 'free' ? `Abonnement van ${u.username || 'gebruiker'} is stopgezet.` : `${u.username || 'Gebruiker'} heeft nu ${TIERS[tier].name}.`);
   } catch (e) { toast(fbErr(e)); btns.forEach(b => { b.disabled = false; }); }
@@ -2488,7 +2501,7 @@ function subscriberRow(u) {
   return h('div', { class: 'row plan-req sub-row' },
     avatar(u.uid, u.username, 40, true),
     h('span', { class: 'item-text' }, h('b', { text: u.username || 'Onbekend' }), h('small', { text: TIERS[cur].name + (BADGES.some(b => b.id === 'moderator' && Array.isArray(b.users) && b.users.includes(u.uid)) ? ' · moderator' : '') })),
-    h('div', { class: 'row-actions' }, sel, go),
+    h('div', { class: 'row-actions' }, sel, go, h('button', { class: 'ghost sm', type: 'button', text: 'Profiel resetten', onclick: () => openResetDialog(u) })),
     note);
 }
 
@@ -2530,9 +2543,137 @@ function buildPlans() {
   return out;
 }
 
-/* =====================  Admin-paneel (knop "Admin", alleen voor moderators)  =====================
-   Tabbladen: Aanvragen (formulieren van upgrade.html beoordelen), Mensen (iedereen beheren), Tabel (functies per versie).
-   Hier komen later ook de andere admin-onderdelen. */
+/* =====================  meldingen (inbox), voor iedereen  =====================
+   Firestore -> notifications -> <id> { uid (ontvanger), type, title, text, by, byName, createdAt, read }
+   Moderators maken ze aan bij een besluit of een profielwijziging; bij een aanvraag maakt de aanvrager er zelf een. */
+const INBOX = { list: [], ready: false };
+const NAV = { admin: 'requests', inbox: 'all' };
+const PAGES = ['settings', 'admin', 'inbox'];
+const unreadInbox = () => INBOX.list.filter(n => !n.read).length;
+const NT_ICON = { sub_request: I.star, sub_approved: I.check, sub_rejected: I.x, sub_changed: I.star, profile_reset: I.user, message: I.bell };
+const NT_FILTERS = [
+  { id: 'all', title: 'Alles', d: 'Alle meldingen', ic: I.bell },
+  { id: 'unread', title: 'Ongelezen', d: 'Nog niet gelezen', ic: I.eye },
+  { id: 'sub', title: 'Abonnement', d: 'Aanvragen en besluiten', ic: I.star },
+  { id: 'profile', title: 'Profiel', d: 'Wijzigingen door een moderator', ic: I.user }
+];
+const ntMatch = (n, f) => f === 'all' || (f === 'unread' && !n.read) || (f === 'sub' && String(n.type).startsWith('sub_')) || (f === 'profile' && n.type === 'profile_reset');
+
+const notifDoc = (uid, type, title, text) => ({
+  uid, type, title: String(title).slice(0, 80), text: String(text || '').slice(0, 400),
+  by: S.me.uid, byName: String(S.profile?.username || 'Moderator').slice(0, 20), createdAt: serverTimestamp(), read: false
+});
+
+function startInbox(uid) {
+  let primed = false;
+  S.unsub.inbox = onSnapshot(query(collection(db, 'notifications'), where('uid', '==', uid), limit(200)), snap => {
+    INBOX.list = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }))
+      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    INBOX.ready = true;
+    if (primed) {
+      for (const ch of snap.docChanges()) {
+        if (ch.type !== 'added' || ch.doc.metadata.hasPendingWrites) continue;
+        const d = ch.doc.data();
+        if (d.type !== 'sub_request') inform(d.title || 'Melding', d.text || '', () => goPage('inbox'));
+      }
+    }
+    primed = true;
+    renderPremiumBadge();
+    if (S.tab === 'inbox') inboxRender();
+  }, e => console.error(e));
+}
+
+// pagina's (Admin, Meldingen) werken net als de instellingen: terug naar waar je was met dezelfde knop
+function goPage(tab, sec) {
+  if (sec) NAV[tab] = sec;
+  if (S.tab === tab) { renderSidebar(); showMain(); return; }
+  S.prevTab = PAGES.includes(S.tab) ? (PAGES.includes(S.prevTab) || !S.prevTab ? 'dms' : S.prevTab) : S.tab;
+  setTab(tab);
+}
+function togglePage(tab) {
+  if (S.tab === tab) setTab(S.prevTab && !PAGES.includes(S.prevTab) ? S.prevTab : 'dms');
+  else goPage(tab);
+}
+
+// gedeelde zijbalk voor Admin en Meldingen
+function buildPageNav(list, foot) {
+  const admin = S.tab === 'admin';
+  const items = admin ? ADM_SECS.map(x => ({ ...x, badge: x.id === 'requests' ? othersPending().length : 0 }))
+    : NT_FILTERS.map(x => ({ ...x, badge: x.id === 'unread' ? unreadInbox() : 0 }));
+  list.replaceChildren(...items.map(x => h('button', {
+    class: 'item set-nav' + (NAV[S.tab] === x.id ? ' active' : ''), type: 'button',
+    onclick: () => { NAV[S.tab] = x.id; renderSidebar(); showMain(); }
+  },
+    h('span', { class: 'set-ic', html: x.ic }),
+    h('span', { class: 'item-text' }, h('b', { text: x.title }), h('small', { text: x.d })),
+    x.badge ? h('span', { class: 'unread', text: unreadText(x.badge) }) : null)));
+  foot.replaceChildren();
+}
+
+const pageHead = (title, sub) => h('div', { class: 'set-head' },
+  h('button', { class: 'icon-btn back', type: 'button', html: I.back, 'aria-label': 'Terug', onclick: () => setView('list') }),
+  h('div', {}, h('h2', { text: title }), h('p', { class: 'sub', text: sub })));
+
+async function ntMark(list) {
+  const todo = list.filter(n => !n.read).slice(0, 400);
+  if (!todo.length) return;
+  try { const b = writeBatch(db); todo.forEach(n => b.update(doc(db, 'notifications', n.id), { read: true })); await b.commit(); }
+  catch (e) { toast(fbErr(e)); }
+}
+async function ntDelete(list) {
+  try { const b = writeBatch(db); list.slice(0, 400).forEach(n => b.delete(doc(db, 'notifications', n.id))); await b.commit(); }
+  catch (e) { toast(fbErr(e)); }
+}
+
+function inboxRender() {
+  const box = $('#ntList'); if (!box) return;
+  const f = NAV.inbox, rows = INBOX.list.filter(n => ntMatch(n, f));
+  const bar = $('#ntBar');
+  if (bar) bar.replaceChildren(
+    h('button', { class: 'ghost sm', type: 'button', text: 'Alles als gelezen', disabled: !rows.some(n => !n.read), onclick: () => ntMark(rows) }),
+    h('button', { class: 'ghost sm', type: 'button', text: 'Alles wissen', disabled: !rows.length, onclick: () => { if (confirm(`${rows.length} melding${rows.length === 1 ? '' : 'en'} wissen?`)) ntDelete(rows); } }));
+  if (!INBOX.ready) { box.replaceChildren(h('p', { class: 'hint', text: 'Laden…' })); return; }
+  if (!rows.length) { box.replaceChildren(h('p', { class: 'hint', text: f === 'unread' ? 'Je hebt alles gelezen. 🎉' : 'Hier staan nog geen meldingen.' })); return; }
+  const out = []; let day = '';
+  for (const n of rows) {
+    const d = n.createdAt?.toDate?.() || new Date();
+    const dk = dayKey(d);
+    if (dk !== day) { day = dk; out.push(h('h4', { class: 'plans-sec', text: dayLabel(d) })); }
+    const from = n.type === 'sub_request' ? 'Jij' : `Moderator ${n.byName || ''}`.trim();
+    out.push(h('div', {
+      class: 'nt-card' + (n.read ? '' : ' new'), role: 'button', tabindex: '0',
+      onclick: () => { if (!n.read) updateDoc(doc(db, 'notifications', n.id), { read: true }).catch(() => {}); },
+      onkeydown: (e) => { if ((e.key === 'Enter' || e.key === ' ') && !n.read) { e.preventDefault(); updateDoc(doc(db, 'notifications', n.id), { read: true }).catch(() => {}); } }
+    },
+      h('span', { class: 'nt-ic t-' + n.type, html: NT_ICON[n.type] || I.bell }),
+      h('div', { class: 'nt-text' },
+        h('b', { text: n.title || 'Melding' }),
+        n.text ? h('p', { text: n.text }) : null,
+        h('small', { text: `${from} · ${tf.format(d)}` })),
+      h('button', {
+        class: 'icon-btn', type: 'button', html: I.trash, title: 'Verwijderen', 'aria-label': 'Melding verwijderen',
+        onclick: (e) => { e.stopPropagation(); deleteDoc(doc(db, 'notifications', n.id)).catch(err => toast(fbErr(err))); }
+      })));
+  }
+  box.replaceChildren(...out);
+}
+
+function renderInbox() {
+  const f = NT_FILTERS.find(x => x.id === NAV.inbox) || NT_FILTERS[0];
+  $('#main').replaceChildren(h('div', { class: 'pane inboxpg' },
+    pageHead('Meldingen', 'Alles wat moderators en abonnementen naar jou sturen, zodat je het kunt terugzien. ' + f.d + '.'),
+    h('div', { class: 'nt-bar', id: 'ntBar' }),
+    h('div', { id: 'ntList' })));
+  inboxRender();
+}
+
+/* =====================  Admin-pagina (knop "Admin", alleen voor moderators)  =====================
+   Zijbalk: Aanvragen (formulieren van upgrade.html beoordelen), Mensen (beheren + profiel resetten), Tabel (functies per versie). */
+const ADM_SECS = [
+  { id: 'requests', title: 'Aanvragen', d: 'Upgrade-aanvragen beoordelen', ic: I.star, sub: 'Formulieren van mensen die een abonnement willen. Keur ze goed of wijs ze af; de gebruiker krijgt een melding met jouw reactie.' },
+  { id: 'people', title: 'Mensen', d: 'Beheren en profielen resetten', ic: I.user, sub: 'Alle Infinitum-gebruikers: abonnement wijzigen, of een profiel en gebruikersnaam resetten.' },
+  { id: 'table', title: 'Tabel', d: 'Functies per versie', ic: I.check, sub: 'Welke functie bij welk abonnement hoort.' }
+];
 const fmtWhen = (t) => { const d = t?.toDate?.(); return d ? `${dayLabel(d)} ${tf.format(d)}` : ''; };
 
 function upgCard(r) {
@@ -2542,7 +2683,7 @@ function upgCard(r) {
   const field = (label, value) => value ? h('div', { class: 'upg-f' }, h('small', { text: label }), h('p', { text: value })) : null;
   const ok = h('button', { class: 'btn-ok', type: 'button', text: 'Goedkeuren' });
   const no = h('button', { class: 'btn-no', type: 'button', text: 'Afwijzen' });
-  const note = h('input', { class: 'inp', maxlength: 200, autocomplete: 'off', placeholder: 'Bericht aan de gebruiker (optioneel)' });
+  const note = h('input', { class: 'inp', maxlength: 200, autocomplete: 'off', placeholder: 'Reactie aan de gebruiker (optioneel)' });
   ok.onclick = () => decideRequest(r, true, [ok, no], note.value);
   no.onclick = () => decideRequest(r, false, [ok, no], note.value);
   const feats = Array.isArray(f?.features) ? f.features.filter(x => typeof x === 'string').slice(0, 12) : [];
@@ -2584,18 +2725,65 @@ function buildRequests() {
   return out;
 }
 
-function openAdmin(tab = 'requests') {
-  if (!S.me || !isAdmin()) return;
-  const defs = [['requests', 'Aanvragen'], ['people', 'Mensen'], ['table', 'Tabel']];
-  const btns = defs.map(([k, t]) => h('button', { class: 'adm-tab', type: 'button', onclick: () => show(k) }, t,
-    k === 'requests' ? h('span', { class: 'unread', hidden: true }) : null));
-  const tabs = h('div', { class: 'adm-tabs', role: 'tablist' }, btns);
-  const pane = h('div', { class: 'adm-pane' });
+// profiel en/of gebruikersnaam van iemand resetten, met een verplichte reactie die de gebruiker als melding krijgt
+function openResetDialog(u) {
+  const label = (cb, t, d) => h('label', { class: 'up-check rs-opt' }, cb, h('span', { class: 'item-text' }, h('b', { text: t }), h('small', { text: d })));
+  const cbName = h('input', { type: 'checkbox' }), cbProf = h('input', { type: 'checkbox' });
+  const msg = h('textarea', { class: 'inp', rows: 3, maxlength: 200, placeholder: 'Reactie aan de gebruiker, bijv. waarom je dit doet (verplicht)' });
+  const err = h('p', { class: 'err' });
+  const go = h('button', { class: 'btn-ok', type: 'button', text: 'Resetten' });
+  go.onclick = async () => {
+    err.textContent = '';
+    const text = msg.value.trim();
+    if (!cbName.checked && !cbProf.checked) { err.textContent = 'Kies wat je wilt resetten.'; return; }
+    if (text.length < 5) { err.textContent = 'Schrijf een korte reactie voor de gebruiker (minimaal 5 tekens).'; return; }
+    go.disabled = true;
+    try { await resetProfile(u, { name: cbName.checked, prof: cbProf.checked, text }); closeDialog(); }
+    catch (e) { err.textContent = fbErr(e); go.disabled = false; }
+  };
+  openDialog(
+    h('h3', { text: `${u.username || 'Gebruiker'} resetten` }),
+    h('p', { class: 'sub', text: 'De gebruiker krijgt hiervan een melding met jouw reactie.' }),
+    label(cbName, 'Gebruikersnaam', 'Wordt vervangen door een automatische naam (gebruiker1234). De gebruiker kan zelf later weer een naam kiezen.'),
+    label(cbProf, 'Profiel', 'Wist profielfoto, banner, bio, links en status.'),
+    h('label', { class: 'lbl', text: 'Reactie' }), msg, err,
+    h('div', { class: 'dlg-actions' }, h('button', { class: 'ghost', type: 'button', onclick: closeDialog, text: 'Annuleren' }), go));
+}
+
+async function resetProfile(u, { name, prof, text }) {
+  const batch = writeBatch(db), upd = {}, did = [];
+  if (prof) {
+    Object.assign(upd, { avatar: '', banner: '', bio: '', links: [], status: '' });
+    did.push('je profielfoto, banner, bio, links en status zijn gewist');
+  }
+  if (name) {
+    let nn = '';
+    for (let i = 0; i < 8 && !nn; i++) {
+      const cand = 'gebruiker' + (1000 + Math.floor(Math.random() * 9000));
+      if (!(await getDoc(doc(db, 'usernames', cand))).exists()) nn = cand;
+    }
+    if (!nn) throw new Error('Kon geen vrije gebruikersnaam vinden. Probeer het nog eens.');
+    const old = u.usernameLower || String(u.username || '').toLowerCase();
+    if (old) batch.delete(doc(db, 'usernames', old));
+    batch.set(doc(db, 'usernames', nn), { uid: u.uid });
+    Object.assign(upd, { username: nn, usernameLower: nn });
+    did.push(`je gebruikersnaam is nu ${nn}`);
+  }
+  batch.update(doc(db, 'users', u.uid), upd);
+  batch.set(doc(collection(db, 'notifications')), notifDoc(u.uid, 'profile_reset', 'Je profiel is aangepast door een moderator',
+    `${text}\n\nWat er is aangepast: ${did.join('; ')}.`));
+  await batch.commit();
+  toast(`${u.username || 'Gebruiker'} is gereset.`);
+}
+
+function renderAdmin() {
+  const sec = ADM_SECS.find(x => x.id === NAV.admin) || ADM_SECS[0];
+  const body = h('div', { class: 'adm-pane' });
   const search = h('input', { class: 'inp', type: 'search', placeholder: 'Zoek een gebruiker…', autocomplete: 'off', 'aria-label': 'Zoek een gebruiker' });
   const count = h('h4', { class: 'plans-sec' });
   const list = h('div');
   const reqBox = h('div');
-  let cur = tab, dirty = false;
+  let dirty = false;
 
   const paintPeople = () => {
     const q = search.value.trim().toLowerCase();
@@ -2609,37 +2797,29 @@ function openAdmin(tab = 'requests') {
   };
   search.addEventListener('input', paintPeople);
 
-  const inField = () => pane.contains(document.activeElement) && document.activeElement !== search && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  const inField = () => body.contains(document.activeElement) && document.activeElement !== search && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   const render = () => {
-    const n = othersPending().length, b = btns[0].lastChild;
-    b.hidden = !n; b.textContent = unreadText(n);
-    if (cur === 'table') return;
+    if (sec.id === 'table') return;
     if (inField()) { dirty = true; return; }   // niet opnieuw tekenen terwijl een moderator typt
     dirty = false;
-    if (cur === 'requests') reqBox.replaceChildren(...buildRequests());
+    if (sec.id === 'requests') reqBox.replaceChildren(...buildRequests());
     else paintPeople();
   };
-  const show = (k) => {
-    cur = k; dirty = false;
-    btns.forEach((b, i) => b.classList.toggle('active', defs[i][0] === k));
-    if (k === 'requests') pane.replaceChildren(reqBox);
-    else if (k === 'people') pane.replaceChildren(search, count, list);
-    else pane.replaceChildren(buildFeatureEditor(() => show('table')));
-    render();
-  };
-  pane.addEventListener('focusout', () => setTimeout(() => { if (dirty && !inField()) render(); }, 0));
+  body.addEventListener('focusout', () => setTimeout(() => { if (dirty && !inField()) render(); }, 0));
+
+  if (sec.id === 'requests') body.append(reqBox);
+  else if (sec.id === 'people') body.append(search, count, list);
+  else body.append(buildFeatureEditor(() => renderAdmin()));
 
   adminView = { render };
-  openDialog(
-    h('h3', { text: 'Admin' }),
-    h('p', { class: 'sub', text: 'Beheer alle Infinitum-gebruikers en beoordeel upgrade-aanvragen.' }),
-    tabs, pane,
-    h('div', { class: 'dlg-actions' }, h('button', { class: 'ghost', type: 'button', onclick: closeDialog, text: 'Sluiten' })));
-  dlg.classList.add('admin');
+  $('#main').replaceChildren(h('div', { class: 'pane adminpg' }, pageHead(sec.title, sec.sub), body));
   syncSubsWatch();
-  show(tab);
+  render();
 }
-$('#adminBtn').addEventListener('click', () => openAdmin());
+
+$('#adminBtn').addEventListener('click', () => togglePage('admin'));
+$('#inboxBtn').innerHTML = I.bell + '<span class="bell-t">Meldingen</span><span class="unread" id="inboxBadge" hidden></span>';
+$('#inboxBtn').addEventListener('click', () => togglePage('inbox'));
 
 function openPlans() {
   if (!S.me) return;
