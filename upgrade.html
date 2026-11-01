@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=14">
+  <link rel="stylesheet" href="styles.css?v=15">
   <style>
     html, body { height: auto; min-height: 100%; }
     body { overflow-x: hidden; overflow-y: auto; }
@@ -58,7 +58,7 @@
     .up-actions > * { flex: 1; }
     @media (max-width: 560px) { .up-plans, .up-checks { grid-template-columns: 1fr; } .up-card { padding: 22px 18px; } }
   </style>
-  <script type="module" src="js/upgrade.js?v=1"></script>
+  <script type="module" src="js/upgrade.js?v=2"></script>
 </head>
 <body>
   <main class="up-wrap">
@@ -95,7 +95,7 @@
         <span><span id="whoName"></span> · <button class="linkish" id="logoutBtn" type="button">Uitloggen</button></span>
       </div>
       <h1>Upgrade aanvragen</h1>
-      <p class="sub">Vul dit formulier in. Een moderator bekijkt het en keurt je aanvraag goed of af. Je krijgt daarna een melding in Infinitum.</p>
+      <p class="sub">Vul dit formulier in. Het is gratis: je vraagt het alleen aan. Een moderator bekijkt het en keurt je aanvraag goed of af. Je krijgt daarna een melding in Infinitum.</p>
       <div id="existing"></div>
       <form id="upForm" novalidate>
         <span class="lbl">Welk abonnement wil je?</span>
@@ -107,15 +107,6 @@
 
         <span class="lbl">Welke functies wil je vooral gebruiken? (optioneel)</span>
         <div class="up-checks" id="feats"></div>
-
-        <label class="lbl" for="pay">Hoe wil je betalen?</label>
-        <select class="inp" id="pay">
-          <option value="unknown">Weet ik nog niet</option>
-          <option value="ideal">iDEAL</option>
-          <option value="paypal">PayPal</option>
-          <option value="card">Creditcard</option>
-          <option value="other">Anders</option>
-        </select>
 
         <label class="lbl" for="extra">Nog iets wat de moderator moet weten? (optioneel)</label>
         <textarea class="inp" id="extra" rows="3" maxlength="300" placeholder="Bijv. hoe lang je Infinitum al gebruikt of een vraag"></textarea>
