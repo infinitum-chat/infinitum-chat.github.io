@@ -31,7 +31,7 @@ export const VAPID_KEY = 'BH9TV_ub-vJfOlyhghdrIFjnPljJCYPrCPBlQZb6dny8B2swZfTpkv
 /* ---------- pushserver (Cloudflare Worker) ----------
    Plak hier het adres van je Worker (zie cloudflare-worker/worker.js), bijv. 'https://infinitum-push.jouwnaam.workers.dev'.
    Leeg laten = geen pushmeldingen als de app dicht is. */
-export const PUSH_URL = '';
+export const PUSH_URL = 'https://infinitum-push.kostermelle90.workers.dev';
 
 export { getMessaging, getToken, deleteToken };
 export const pushSupported = async () => {
