@@ -116,12 +116,22 @@ service cloud.firestore {
     match /subscriptions/{uid} {
       function validSubRequest() {
         let d = request.resource.data;
-        return d.keys().hasOnly(['username', 'tier', 'status', 'requestedAt'])
+        return d.keys().hasOnly(['username', 'tier', 'status', 'requestedAt', 'form'])
           && d.username is string && d.username.size() <= 20
           && d.tier in ['plus', 'prime']
           && d.status == 'pending'
           && d.requestedAt == request.time
+          && validForm(d.get('form', null))
           && get(/databases/$(database)/documents/users/$(uid)).data.get('tier', 'free') != d.tier;
+      }
+      // het ingevulde formulier van upgrade.html
+      function validForm(f) {
+        return f is map
+          && f.keys().hasOnly(['reason', 'features', 'payment', 'extra'])
+          && f.reason is string && f.reason.size() >= 10 && f.reason.size() <= 500
+          && f.get('features', []) is list && f.get('features', []).size() <= 12
+          && f.payment in ['ideal', 'paypal', 'card', 'other', 'unknown']
+          && f.get('extra', '') is string && f.get('extra', '').size() <= 300;
       }
       function validNote(d) {
         return d.get('note', '') is string && d.get('note', '').size() <= 200;
