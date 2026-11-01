@@ -36,10 +36,10 @@ service cloud.firestore {
       allow create: if signedIn()
         && name.matches('^[a-z0-9_.]{2,20}$')
         && request.resource.data.keys().hasOnly(['uid'])
-        && request.resource.data.uid == request.auth.uid;
+        && (request.resource.data.uid == request.auth.uid || isMod());   // een moderator mag een nieuwe naam voor iemand vastleggen (profiel resetten)
       allow update: if false;
-      // je mag je eigen oude naam vrijgeven bij het wijzigen van je gebruikersnaam
-      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      // je mag je eigen oude naam vrijgeven bij het wijzigen van je gebruikersnaam (een moderator ook, bij een reset)
+      allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isMod());
     }
 
     // ---------- profielen ----------
@@ -91,6 +91,23 @@ service cloud.firestore {
         && request.resource.data.get('links', []) is list
         && request.resource.data.get('links', []).size() <= 6
         && request.resource.data.get('tier', null) == resource.data.get('tier', null);   // tier mag je niet zelf wijzigen
+      // Een moderator mag het profiel of de gebruikersnaam van iemand anders resetten: de velden worden gewist,
+      // of (gebruikersnaam) vervangen door een naam die op dat moment aan die persoon wordt toegewezen.
+      allow update: if isMod()
+        && uid != request.auth.uid
+        && changed(['username', 'usernameLower', 'status', 'bio', 'avatar', 'banner', 'links'])
+        && (request.resource.data.username == resource.data.username
+            || (request.resource.data.username is string
+                && request.resource.data.username.size() >= 2 && request.resource.data.username.size() <= 20
+                && request.resource.data.username.matches('^[A-Za-z0-9_.]+$')
+                && request.resource.data.usernameLower == request.resource.data.username.lower()
+                && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.usernameLower)).data.uid == uid))
+        && (request.resource.data.get('avatar', '') == '' || request.resource.data.get('avatar', '') == resource.data.get('avatar', ''))
+        && (request.resource.data.get('banner', '') == '' || request.resource.data.get('banner', '') == resource.data.get('banner', ''))
+        && (request.resource.data.get('bio', '') == '' || request.resource.data.get('bio', '') == resource.data.get('bio', ''))
+        && (request.resource.data.get('status', '') == '' || request.resource.data.get('status', '') == resource.data.get('status', ''))
+        && (request.resource.data.get('links', []) == [] || request.resource.data.get('links', []) == resource.data.get('links', []));
+
       // Een moderator mag het tier van iemand anders ALLEEN zetten als er een goedgekeurde aanvraag voor precies dat tier is
       // (de goedkeuring en deze wijziging gebeuren samen in één batch).
       allow update: if isMod()
@@ -163,6 +180,31 @@ service cloud.firestore {
         || adminChange();
       // aanvraag annuleren of opruimen
       allow delete: if isSelf(uid);
+    }
+
+    // ---------- meldingen (inbox): id = willekeurig, `uid` = de ontvanger ----------
+    match /notifications/{nid} {
+      function validNotif(d) {
+        return d.keys().hasOnly(['uid', 'type', 'title', 'text', 'by', 'byName', 'createdAt', 'read'])
+          && d.type in ['sub_request', 'sub_approved', 'sub_rejected', 'sub_changed', 'profile_reset', 'message']
+          && d.uid is string
+          && d.title is string && d.title.size() >= 1 && d.title.size() <= 80
+          && d.text is string && d.text.size() <= 400
+          && d.by == request.auth.uid
+          && d.byName is string && d.byName.size() <= 20
+          && d.createdAt == request.time
+          && d.read == false;
+      }
+      // je ziet alleen je eigen meldingen
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      // moderators sturen meldingen naar anderen (besluiten, profielwijzigingen); bij een aanvraag maak je er zelf eentje voor jezelf
+      allow create: if signedIn() && validNotif(request.resource.data)
+        && ((isMod() && request.resource.data.type != 'sub_request')
+            || (request.resource.data.uid == request.auth.uid && request.resource.data.type == 'sub_request'));
+      // gelezen markeren mag alleen de ontvanger, en alleen dat ene veld
+      allow update: if signedIn() && resource.data.uid == request.auth.uid
+        && changed(['read']) && request.resource.data.read is bool;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
     // ---------- functies per abonnement (de tabel; alleen admins mogen hem aanpassen) ----------
