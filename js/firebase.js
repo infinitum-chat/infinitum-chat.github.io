@@ -26,7 +26,7 @@ isSupported().then(ok => { if (ok) getAnalytics(app); }).catch(() => {});
 /* ---------- pushmeldingen (FCM) ----------
    Plak hier je "Web Push-certificaat" (sleutelpaar, publieke sleutel):
    Firebase Console -> Projectinstellingen -> Cloud Messaging -> Web Push-certificaten -> Sleutelpaar genereren. */
-export const VAPID_KEY = '';
+export const VAPID_KEY = 'BH9TV_ub-vJfOlyhghdrIFjnPljJCYPrCPBlQZb6dny8B2swZfTpkvrwVpOAYua2Q9eBnHP9E0Bjj3hKVdACY8E';
 
 export { getMessaging, getToken, deleteToken };
 export const pushSupported = async () => {
