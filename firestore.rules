@@ -127,10 +127,9 @@ service cloud.firestore {
       // het ingevulde formulier van upgrade.html
       function validForm(f) {
         return f is map
-          && f.keys().hasOnly(['reason', 'features', 'payment', 'extra'])
+          && f.keys().hasOnly(['reason', 'features', 'extra'])
           && f.reason is string && f.reason.size() >= 10 && f.reason.size() <= 500
           && f.get('features', []) is list && f.get('features', []).size() <= 12
-          && f.payment in ['ideal', 'paypal', 'card', 'other', 'unknown']
           && f.get('extra', '') is string && f.get('extra', '').size() <= 300;
       }
       function validNote(d) {
