@@ -2,7 +2,7 @@ import { auth, db, googleProvider } from './firebase.js';
 import {
   onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, signOut
 } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js';
-import { collection, doc, getDoc, getDocs, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
+import { collection, doc, getDoc, getDocs, writeBatch, serverTimestamp } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
 
 const $ = (sel) => document.querySelector(sel);
 const TIERS = {
@@ -145,8 +145,10 @@ $('#upForm').addEventListener('submit', async (e) => {
   if (!$('#agree').checked) { err.textContent = 'Vink aan dat je begrijpt hoe de aanvraag werkt.'; return; }
   busy = true; $('#fSubmit').disabled = true;
   try {
-    await setDoc(doc(db, 'subscriptions', me.uid), {
-      username: String(profile?.username || 'Onbekend').slice(0, 20),
+    const batch = writeBatch(db);
+    const name = String(profile?.username || 'Onbekend').slice(0, 20);
+    batch.set(doc(db, 'subscriptions', me.uid), {
+      username: name,
       tier: chosen, status: 'pending', requestedAt: serverTimestamp(),
       form: {
         reason: reason.slice(0, 500),
@@ -154,6 +156,12 @@ $('#upForm').addEventListener('submit', async (e) => {
         extra: $('#extra').value.trim().slice(0, 300)
       }
     });
+    batch.set(doc(collection(db, 'notifications')), {
+      uid: me.uid, type: 'sub_request', title: `Aanvraag voor ${TIERS[chosen].name} verstuurd`,
+      text: 'Je aanvraag is bij de moderators aangekomen. Zodra hij is beoordeeld, krijg je hier een melding met hun reactie.',
+      by: me.uid, byName: name, createdAt: serverTimestamp(), read: false
+    });
+    await batch.commit();
     $('#doneText').textContent = `Je aanvraag voor ${TIERS[chosen].name} is bij de moderators aangekomen. Je krijgt een melding in Infinitum zodra hij is beoordeeld.`;
     show('stDone');
   } catch (ex) { err.textContent = fbErr(ex); }
