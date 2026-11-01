@@ -151,7 +151,6 @@ $('#upForm').addEventListener('submit', async (e) => {
       form: {
         reason: reason.slice(0, 500),
         features: [...picked].map(x => String(x).slice(0, 60)).slice(0, 12),
-        payment: $('#pay').value,
         extra: $('#extra').value.trim().slice(0, 300)
       }
     });
