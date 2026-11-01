@@ -138,21 +138,26 @@ async function planPush(env, uids, kind, { title, body, open, tag, force }) {
   uids = [...new Set((uids || []).filter(Boolean))].slice(0, MAX_UIDS);
   const plan = { list: [], skipped: {}, reason: '' };
   if (!uids.length) { plan.reason = 'geen ontvangers'; return plan; }
-  const paths = uids.flatMap(u => [`settings/${u}`, `presenceSettings/${u}`, `presence/${u}`]);
+
+  // eerst de tokens: wie geen toestel gekoppeld heeft, hoeft niet verder gelezen te worden
+  const allToks = await getTokens(env, uids);
+  const withTok = [...new Set(allToks.map(t => t.uid))];
+  if (!withTok.length) { plan.reason = 'geen toestel gekoppeld: zet "Pushmeldingen op dit toestel" aan in de app'; return plan; }
+
+  const paths = withTok.flatMap(u => [`settings/${u}`, `presenceSettings/${u}`, `presence/${u}`]);
   const docs = await getDocs(env, paths);
   const now = Date.now(), prefs = {}, ok = [];
-  for (const u of uids) {
+  for (const u of withTok) {
     const set = docs[`settings/${u}`], dnd = docs[`presenceSettings/${u}`], pc = docs[`presence/${u}`];
     if (dnd && dnd.mode === 'dnd' && (!dnd.until || dnd.until > now)) { plan.skipped[u] = 'Niet storen staat aan'; continue; }
-    // zit je op de pc (online, recente hartslag)? Dan geen push; de pc laat het zelf zien
     if (!force && pc && pc.state === 'online' && pc.lastSeen && now - pc.lastSeen < 270000) { plan.skipped[u] = 'ontvanger is online op de pc'; continue; }
     const n = { dm: true, server: true, requests: true, preview: true, ...((set && set.notif) || {}) };
     if (n[kind] === false) { plan.skipped[u] = `meldingen voor "${kind}" staan uit in de instellingen`; continue; }
     prefs[u] = n; ok.push(u);
   }
-  if (!ok.length) { plan.reason = Object.values(plan.skipped)[0] || 'geen ontvangers'; return plan; }
-  const toks = await getTokens(env, ok);
-  if (!toks.length) { plan.reason = 'geen toestel gekoppeld: zet "Pushmeldingen op dit toestel" aan in de app'; return plan; }
+  const toks = allToks.filter(t => ok.includes(t.uid));
+  if (!toks.length) { plan.reason = Object.values(plan.skipped)[0] || 'geen ontvangers'; return plan; }
+
   plan.list = toks.slice(0, MAX_SENDS).map(t => ({
     t,
     data: {
