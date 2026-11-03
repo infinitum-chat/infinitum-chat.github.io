@@ -103,7 +103,7 @@ const I = {
   phone: svg('<rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18h2"/>'),
   hash: svg('<path d="M5 9h14M4 15h14M10 3 8 21M16 3l-2 18"/>'),
   at: svg('<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>'),
-  megaphone: svg('<path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1zM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"/>'),
+  megaphone: svg('<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>'),
   crown: svg('<path d="M3 8l4 4 5-7 5 7 4-4-2 11H5z"/>'),
   gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>')
 };
@@ -1412,7 +1412,7 @@ function fillServerSidebar(list, foot) {
       list.append(h('button', { class: 'item chan' + (S.activeChannel === ch.id ? ' active' : ''), type: 'button', onclick: () => { S.activeChannel = ch.id; renderSidebar(); showMain(); } },
         h('span', { class: 'ch-ic', html: ch.type === 'announce' ? I.megaphone : I.hash }),
         h('span', { class: 'item-text' }, h('b', { text: ch.name })),
-        ch.acl && (ch.acl.view || ch.acl.send) ? h('span', { class: 'ch-lock', html: I.lock, title: 'Beperkte rechten' }) : null));
+        ch.acl?.view ? h('span', { class: 'ch-lock', html: I.lock, title: 'Beperkte rechten' }) : null));
     }
     if (hasPerm(s, 'manageChannels')) list.append(h('button', { class: 'ghost sm chan-add', type: 'button', html: I.plus + '<span>Kanaal maken</span>', onclick: () => openServerSettings('channels', { kind: 'chan', id: null }) }));
   }
@@ -1677,7 +1677,7 @@ function ssChannels(s) {
   return h('div', {}, h('span', { class: 'set-lbl', text: 'Kanalen' }),
     list.map((c, i) => h('div', { class: 'ss-item' },
       h('span', { class: 'ch-ic', html: c.type === 'announce' ? I.megaphone : I.hash }),
-      h('span', { class: 'item-text' }, h('b', { text: c.name }), h('small', { text: (c.type === 'announce' ? 'Aankondigingen' : 'Tekstkanaal') + (c.acl ? ' · eigen rechten' : '') })),
+      h('span', { class: 'item-text' }, h('b', { text: c.name }), h('small', { text: (c.type === 'announce' ? 'Aankondigingen' : 'Tekstkanaal') + (c.acl?.view ? ' · privé' : '') })),
       h('button', { class: 'icon-btn', type: 'button', html: I.up, disabled: i === 0, 'aria-label': 'Omhoog', onclick: () => { const o = [...list]; [o[i - 1], o[i]] = [o[i], o[i - 1]]; saveChannelOrder(s, o); } }),
       h('button', { class: 'icon-btn', type: 'button', html: I.down, disabled: i === list.length - 1, 'aria-label': 'Omlaag', onclick: () => { const o = [...list]; [o[i + 1], o[i]] = [o[i], o[i + 1]]; saveChannelOrder(s, o); } }),
       h('button', { class: 'icon-btn', type: 'button', html: I.pencil, 'aria-label': 'Bewerken', onclick: () => { ssView.sub = { kind: 'chan', id: c.id }; renderSS(); } }),
@@ -1709,25 +1709,41 @@ function ssChannelEditor(s, cid) {
   const type = h('select', { class: 'inp', onchange: () => { st.type = type.value; if (st.type === 'announce' && st.acl.send === null && !cur) st.acl.send = []; renderSS(); } },
     h('option', { value: 'text', text: 'Tekstkanaal' }), h('option', { value: 'announce', text: 'Aankondigingen (alleen beheerders sturen)' }));
   type.value = st.type;
+  const roleOpts = Object.entries(s.roles || {}).filter(([id]) => id !== 'everyone').sort((x, y) => (y[1].pos || 0) - (x[1].pos || 0));
+  st.pend = st.pend || {};
   const permBlock = (key, title, offText, onText) => {
     const custom = st.acl[key] !== null, list = st.acl[key] || [];
     const sel = h('select', { class: 'inp', onchange: () => { st.acl[key] = sel.value === 'custom' ? [] : null; renderSS(); } },
       h('option', { value: 'all', text: offText }), h('option', { value: 'custom', text: onText }));
     sel.value = custom ? 'custom' : 'all';
-    const add = h('input', { class: 'inp', placeholder: '@rolnaam of @gebruikersnaam + Enter', onkeydown: async (e) => {
+    const add = h('input', { class: 'inp', value: st.pend[key] || '', placeholder: 'Los lid toevoegen: @gebruikersnaam + Enter', oninput: () => { st.pend[key] = add.value; }, onkeydown: async (e) => {
       if (e.key !== 'Enter') return; e.preventDefault();
       const t = await resolveTarget(s, add.value);
-      if (!t) { toast('Geen rol of lid met die naam gevonden.'); return; }
+      if (!t || t.id === 'everyone') { toast('Geen lid of rol met die naam gevonden.'); return; }
       if (!st.acl[key].includes(t.id)) st.acl[key].push(t.id);
-      renderSS();
+      st.pend[key] = ''; renderSS();
     } });
+    const users = list.filter(t => t.startsWith('u:'));
     return h('div', { class: 'ss-perm' }, h('b', { text: title }), sel,
-      custom ? [h('div', { class: 'ss-chips' }, list.length ? list.map(t => h('span', { class: 'rchip' }, targetLabel(s, t), h('button', { type: 'button', class: 'rchip-x', 'aria-label': 'Verwijderen', text: '×', onclick: () => { st.acl[key] = st.acl[key].filter(x => x !== t); renderSS(); } }))) : h('small', { class: 'hint', text: 'Niemand (behalve beheerders).' })), add] : null);
+      custom ? [
+        roleOpts.length ? h('small', { class: 'hint', text: 'Kies de rollen:' }) : h('small', { class: 'hint', text: 'Er zijn nog geen rollen; maak ze bij het tabblad Rollen.' }),
+        roleOpts.map(([id, r]) => tgl(r.name, null, list.includes(id), (on) => { st.acl[key] = on ? [...new Set([...st.acl[key], id])] : st.acl[key].filter(x => x !== id); })),
+        users.length ? h('div', { class: 'ss-chips' }, users.map(t => h('span', { class: 'rchip' }, targetLabel(s, t), h('button', { type: 'button', class: 'rchip-x', 'aria-label': 'Verwijderen', text: '×', onclick: () => { st.acl[key] = st.acl[key].filter(x => x !== t); renderSS(); } })))) : null,
+        add] : null);
   };
   const save = h('button', { class: 'glow', type: 'button', text: cid ? 'Opslaan' : 'Maken', onclick: async () => {
     const nm = st.name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_\-äëïöüéèà]/g, '').slice(0, 30);
     if (!nm) { toast('Geef het kanaal een naam (letters, cijfers, - of _).'); return; }
     if (chanList(s).some(c => c.id !== cid && c.name === nm)) { toast('Die kanaalnaam bestaat al.'); return; }
+    for (const k of ['view', 'send', 'manage']) {   // tekst die nog niet met Enter was toegevoegd, alsnog meenemen
+      const raw = (st.pend[k] || '').trim();
+      if (raw && st.acl[k] !== null) {
+        const t = await resolveTarget(s, raw);
+        if (!t || t.id === 'everyone') { toast(`“${raw}” is geen lid of rol van deze server.`); return; }
+        if (!st.acl[k].includes(t.id)) st.acl[k].push(t.id);
+      }
+    }
+    if (st.acl.view !== null && !st.acl.view.length && !confirm('Er is geen enkele rol of lid gekozen die dit kanaal mag zien: alleen beheerders zien het dan. Doorgaan?')) return;
     const acl = Object.fromEntries(Object.entries(st.acl).filter(([, v]) => v !== null));
     const hasAcl = Object.keys(acl).length > 0;
     try {
@@ -1818,7 +1834,7 @@ function ssMembers(s) {
       const n = NAME[u] || PROF[u]?.username || '…', act = canActOn(s, u);
       return h('div', { class: 'row ss-mrow' }, dotted(u, n, 38),
         h('span', { class: 'item-text' }, h('b', { style: roleColorStyle(s, u), text: n + (u === S.me.uid ? ' (jij)' : '') }), h('span', { class: 'ss-chips' }, rankTag(s, u), heldRoles(s, u).map(r => roleChip(s, r)))),
-        act && hasPerm(s, 'manageRoles') ? h('button', { class: 'ghost sm', type: 'button', text: 'Rollen', onclick: () => { ssView.sub = { kind: 'mroles', id: u }; renderSS(); } }) : null,
+        (act || srvSuper(s)) && hasPerm(s, 'manageRoles') ? h('button', { class: 'ghost sm', type: 'button', text: 'Rollen', onclick: () => { ssView.sub = { kind: 'mroles', id: u }; renderSS(); } }) : null,
         act && hasPerm(s, 'kick') && !s.official ? h('button', { class: 'ghost sm danger', type: 'button', text: 'Verwijderen', onclick: async () => {
           if (!confirm(`${n} uit de server zetten?`)) return;
           await upd(s, { members: arrayRemove(u), [`mroles.${u}`]: deleteField() }, n + ' is uit de server gezet.');
