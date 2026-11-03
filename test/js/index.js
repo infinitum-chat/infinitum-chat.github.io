@@ -77,7 +77,7 @@ const hasPerm = (srv, mods, uid, p) => (srv.official ? mods.has(uid) : srv.owner
 const aclHit = (srv, uid, list) => (list || []).some(t => t === 'everyone' || t === 'u:' + uid || roleIds(srv, uid).includes(t));
 const canView = (srv, mods, ch, uid) => hasPerm(srv, mods, uid, 'admin') || !(ch.acl && ch.acl.view) || aclHit(srv, uid, ch.acl.view);
 
-async function serverMessage(sid, cid, m) {
+async function serverMessage(sid, cid, m, mid) {
   const srvSnap = await db.doc(`servers/${sid}`).get();
   if (!srvSnap.exists) return;
   const srv = srvSnap.data(), members = srv.members || [];
@@ -93,12 +93,13 @@ async function serverMessage(sid, cid, m) {
   if (mn.everyone) viewers.forEach(u => mentioned.add(u));
   for (const rid of mn.roles || []) for (const u of viewers) if (((srv.mroles || {})[u] || []).includes(rid)) mentioned.add(u);
 
+  console.log(`serverMessage ${sid}/${cid}: ${viewers.size} kijkers, ${mentioned.size} getagd (everyone=${!!mn.everyone}, rollen=${(mn.roles || []).length}, users=${(mn.users || []).length})`);
   const open = `server:${sid}:${cid}`, where = `${srv.name} #${ch.name}`;
   const list = [...mentioned].slice(0, 500);
   for (let i = 0; i < list.length; i += 400) {   // inbox-meldingen (de bel in de app)
     const batch = db.batch();
     for (const u of list.slice(i, i + 400)) {
-      batch.set(db.collection('notifications').doc(), {
+      batch.set(db.collection('notifications').doc(`m_${mid}_${u}`), {
         uid: u, type: 'mention', title: clip(`${m.name || 'Iemand'} heeft je genoemd in ${where}`, 80), text: clip(m.text, 200),
         by: m.uid, byName: String(m.name || '').slice(0, 20), sid, cid, open, createdAt: admin.firestore.FieldValue.serverTimestamp(), read: false
       });
@@ -116,11 +117,13 @@ async function serverMessage(sid, cid, m) {
 // nieuw bericht in kanaal #algemeen (oude plek) of in een ander kanaal
 exports.onServerMessage = onDocumentCreated('servers/{sid}/messages/{mid}', async (e) => {
   const m = e.data?.data(); if (!m) return;
-  await serverMessage(e.params.sid, 'general', m);
+  console.log('onServerMessage', e.params.sid);
+  await serverMessage(e.params.sid, 'general', m, e.params.mid);
 });
 exports.onChannelMessage = onDocumentCreated('servers/{sid}/channels/{cid}/messages/{mid}', async (e) => {
   const m = e.data?.data(); if (!m) return;
-  await serverMessage(e.params.sid, e.params.cid, m);
+  console.log('onChannelMessage', e.params.sid, e.params.cid);
+  await serverMessage(e.params.sid, e.params.cid, m, e.params.mid);
 });
 
 // nieuw vriendschapsverzoek
