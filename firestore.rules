@@ -1,0 +1,640 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function changed(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    // Admin = de uid's in het veld `users` (array) van het badge-document met id `moderator` (de moderator-badge IS de admin-badge).
+    // Een document met id `admin` werkt ook, maar is niet nodig.
+    function hasBadge(id) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/badges/$(id))
+        && request.auth.uid in get(/databases/$(database)/documents/badges/$(id)).data.get('users', []);
+    }
+    function isAdmin() { return hasBadge('moderator') || hasBadge('admin'); }
+    function isMod() { return isAdmin(); }
+
+    // Een DM-chat mag alleen als jullie bevestigde vrienden zijn.
+    function friendship(id) {
+      return get(/databases/$(database)/documents/friendships/$(id));
+    }
+    function isFriendChat(chatId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/friendships/$(chatId))
+        && friendship(chatId).data.status == 'accepted'
+        && request.auth.uid in friendship(chatId).data.users;
+    }
+
+    // ---------- gebruikersnamen (uniek, publiek opzoekbaar per naam) ----------
+    match /usernames/{name} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if signedIn()
+        && name.matches('^[a-z0-9_.]{2,20}$')
+        && request.resource.data.keys().hasOnly(['uid'])
+        && (request.resource.data.uid == request.auth.uid || isMod());   // een moderator mag een nieuwe naam voor iemand vastleggen (profiel resetten)
+      allow update: if false;
+      // je mag je eigen oude naam vrijgeven bij het wijzigen van je gebruikersnaam (een moderator ook, bij een reset)
+      allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isMod());
+    }
+
+    // ---------- profielen ----------
+    match /users/{uid} {
+      // gebruikersnaam wijzigen: hooguit 1x per 7 dagen, en de nieuwe naam moet van jou zijn
+      function nameOk() {
+        let d = request.resource.data;
+        return d.username == resource.data.username
+          ? (d.usernameLower == resource.data.usernameLower
+              && d.get('usernameChangedAt', null) == resource.data.get('usernameChangedAt', null))
+          : (d.username is string
+              && d.username.size() >= 2 && d.username.size() <= 20
+              && d.username.matches('^[A-Za-z0-9_.]+$')
+              && d.usernameLower == d.username.lower()
+              && d.usernameChangedAt == request.time
+              && request.time > resource.data.get('usernameChangedAt', timestamp.value(0)) + duration.value(7, 'd')
+              && getAfter(/databases/$(database)/documents/usernames/$(d.usernameLower)).data.uid == uid);
+      }
+
+      // TIER (Infinitum / Infinitum+ / Infinitum Prime):
+      // het veld `tier` (type: string) staat op users/{uid} en is "free", "plus" of "prime".
+      // Nieuwe gebruikers krijgen automatisch tier = "free". Jij verandert het in de Firebase Console
+      // (Firestore Database → users → document van de persoon → veld tier → waarde aanpassen).
+      // Gebruikers kunnen het niet zelf verhogen of wijzigen; moderators/admins alleen via een besluit (zie hieronder).
+      allow read: if signedIn();
+      allow create: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['username', 'usernameLower', 'status', 'tier', 'createdAt'])
+        && request.resource.data.get('tier', 'free') == 'free'      // nieuwe gebruikers starten altijd als gewoon Infinitum
+        && request.resource.data.username is string
+        && request.resource.data.username.size() >= 2
+        && request.resource.data.username.size() <= 20
+        && request.resource.data.usernameLower == request.resource.data.username.lower()
+        && request.resource.data.status is string
+        && request.resource.data.status.size() <= 40
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.usernameLower)).data.uid == uid;
+      // status, bio, profielfoto, banner en links mogen door jezelf aangepast worden
+      allow update: if isSelf(uid)
+        && changed(['status', 'bio', 'avatar', 'banner', 'links', 'username', 'usernameLower', 'usernameChangedAt'])
+        && nameOk()
+        && request.resource.data.status is string
+        && request.resource.data.status.size() <= 40
+        && request.resource.data.get('bio', '') is string
+        && request.resource.data.get('bio', '').size() <= 200
+        && request.resource.data.get('avatar', '') is string
+        && request.resource.data.get('avatar', '').size() <= 40000
+        && request.resource.data.get('banner', '') is string
+        && request.resource.data.get('banner', '').size() <= 150000
+        && request.resource.data.get('links', []) is list
+        && request.resource.data.get('links', []).size() <= 6
+        && request.resource.data.get('tier', null) == resource.data.get('tier', null);   // tier mag je niet zelf wijzigen
+      // Een moderator mag het profiel of de gebruikersnaam van iemand anders resetten: de velden worden gewist,
+      // of (gebruikersnaam) vervangen door een naam die op dat moment aan die persoon wordt toegewezen.
+      allow update: if isMod()
+        && uid != request.auth.uid
+        && changed(['username', 'usernameLower', 'status', 'bio', 'avatar', 'banner', 'links'])
+        && (request.resource.data.username == resource.data.username
+            || (request.resource.data.username is string
+                && request.resource.data.username.size() >= 2 && request.resource.data.username.size() <= 20
+                && request.resource.data.username.matches('^[A-Za-z0-9_.]+$')
+                && request.resource.data.usernameLower == request.resource.data.username.lower()
+                && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.usernameLower)).data.uid == uid))
+        && (request.resource.data.get('avatar', '') == '' || request.resource.data.get('avatar', '') == resource.data.get('avatar', ''))
+        && (request.resource.data.get('banner', '') == '' || request.resource.data.get('banner', '') == resource.data.get('banner', ''))
+        && (request.resource.data.get('bio', '') == '' || request.resource.data.get('bio', '') == resource.data.get('bio', ''))
+        && (request.resource.data.get('status', '') == '' || request.resource.data.get('status', '') == resource.data.get('status', ''))
+        && (request.resource.data.get('links', []) == [] || request.resource.data.get('links', []) == resource.data.get('links', []));
+
+      // Een moderator mag het tier van iemand anders ALLEEN zetten als er een goedgekeurde aanvraag voor precies dat tier is
+      // (de goedkeuring en deze wijziging gebeuren samen in één batch).
+      allow update: if isMod()
+        && uid != request.auth.uid
+        && changed(['tier'])
+        && request.resource.data.tier in ['plus', 'prime']
+        && get(/databases/$(database)/documents/subscriptions/$(uid)).data.status == 'pending'
+        && getAfter(/databases/$(database)/documents/subscriptions/$(uid)).data.status == 'approved'
+        && getAfter(/databases/$(database)/documents/subscriptions/$(uid)).data.tier == request.resource.data.tier
+        && getAfter(/databases/$(database)/documents/subscriptions/$(uid)).data.decidedBy == request.auth.uid;
+      // Een admin mag elk tier zetten (ook 'free' = abonnement stopzetten, en bij zichzelf), altijd samen met een vastgelegd
+      // besluit in subscriptions/{uid} (zo kan de gebruiker zien wat er is veranderd en waarom).
+      allow update: if isAdmin()
+        && changed(['tier'])
+        && request.resource.data.tier in ['free', 'plus', 'prime']
+        && getAfter(/databases/$(database)/documents/subscriptions/$(uid)).data.status == 'approved'
+        && getAfter(/databases/$(database)/documents/subscriptions/$(uid)).data.tier == request.resource.data.tier
+        && getAfter(/databases/$(database)/documents/subscriptions/$(uid)).data.decidedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ---------- abonnementsaanvragen + besluiten (id = uid van de gebruiker) ----------
+    match /subscriptions/{uid} {
+      function validSubRequest() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['username', 'tier', 'status', 'requestedAt', 'form'])
+          && d.username is string && d.username.size() <= 20
+          && d.tier in ['plus', 'prime']
+          && d.status == 'pending'
+          && d.requestedAt == request.time
+          && validForm(d.get('form', null))
+          && get(/databases/$(database)/documents/users/$(uid)).data.get('tier', 'free') != d.tier;
+      }
+      // het ingevulde formulier van upgrade.html
+      function validForm(f) {
+        return f is map
+          && f.keys().hasOnly(['reason', 'features', 'extra'])
+          && f.reason is string && f.reason.size() >= 10 && f.reason.size() <= 500
+          && f.get('features', []) is list && f.get('features', []).size() <= 12
+          && f.get('extra', '') is string && f.get('extra', '').size() <= 300;
+      }
+      function validNote(d) {
+        return d.get('note', '') is string && d.get('note', '').size() <= 200;
+      }
+      // een admin zet het abonnement van iemand direct op free / plus / prime, met een optioneel bericht
+      function adminChange() {
+        let d = request.resource.data;
+        return isAdmin()
+          && d.keys().hasOnly(['username', 'tier', 'status', 'decidedBy', 'decidedAt', 'note'])
+          && d.username is string && d.username.size() <= 20
+          && d.tier in ['free', 'plus', 'prime']
+          && d.status == 'approved'
+          && d.decidedBy == request.auth.uid
+          && d.decidedAt == request.time
+          && validNote(d);
+      }
+
+      // je ziet alleen je eigen aanvraag; moderators en admins zien alle aanvragen
+      allow read: if isSelf(uid) || isMod();
+      allow create: if (isSelf(uid) && validSubRequest()) || adminChange();
+      allow update: if (isSelf(uid) && validSubRequest())
+        || (isMod()
+            && (uid != request.auth.uid || isAdmin())      // alleen een admin mag zijn eigen aanvraag goedkeuren
+            && resource.data.status == 'pending'
+            && changed(['status', 'decidedBy', 'decidedAt', 'note'])
+            && request.resource.data.status in ['approved', 'rejected']
+            && request.resource.data.decidedBy == request.auth.uid
+            && request.resource.data.decidedAt == request.time
+            && validNote(request.resource.data))
+        || adminChange();
+      // aanvraag annuleren of opruimen
+      allow delete: if isSelf(uid);
+    }
+
+    // ---------- meldingen (inbox): id = willekeurig, `uid` = de ontvanger ----------
+    match /notifications/{nid} {
+      function validNotif(d) {
+        return d.keys().hasOnly(['uid', 'type', 'title', 'text', 'by', 'byName', 'createdAt', 'read'])
+          && d.type in ['sub_request', 'sub_approved', 'sub_rejected', 'sub_changed', 'profile_reset', 'message', 'mention']
+          && d.uid is string
+          && d.title is string && d.title.size() >= 1 && d.title.size() <= 80
+          && d.text is string && d.text.size() <= 400
+          && d.by == request.auth.uid
+          && d.byName is string && d.byName.size() <= 20
+          && d.createdAt == request.time
+          && d.read == false;
+      }
+      // je ziet alleen je eigen meldingen
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      // moderators sturen meldingen naar anderen (besluiten, profielwijzigingen); bij een aanvraag maak je er zelf eentje voor jezelf
+      allow create: if signedIn() && validNotif(request.resource.data)
+        && ((isMod() && request.resource.data.type != 'sub_request')
+            || (request.resource.data.uid == request.auth.uid && request.resource.data.type == 'sub_request'));
+      // gelezen markeren mag alleen de ontvanger, en alleen dat ene veld
+      allow update: if signedIn() && resource.data.uid == request.auth.uid
+        && changed(['read']) && request.resource.data.read is bool;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // ---------- functies per abonnement (de tabel; alleen admins mogen hem aanpassen) ----------
+    match /features/{featureId} {
+      function okCell(v) { return v is bool || (v is string && v.size() <= 30); }
+      allow read: if signedIn();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['name', 'free', 'plus', 'prime', 'order'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 1 && request.resource.data.name.size() <= 60
+        && okCell(request.resource.data.free)
+        && okCell(request.resource.data.plus)
+        && okCell(request.resource.data.prime)
+        && request.resource.data.order is number;
+      allow delete: if isAdmin();
+    }
+
+    // ---------- jouw instellingen (thema, meldingen, privacy...) — alleen jijzelf ----------
+    match /settings/{uid} {
+      // abonnement van jezelf (users/{uid}.tier) bepaalt welke achtergronden je mag kiezen
+      function myTier() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('tier', 'free'); }
+      function paid() { return myTier() in ['plus', 'prime']; }
+      function bgOk(bg) {
+        return bg in ['cosmos', 'aurora', 'sunset', 'ocean']
+          || (bg in ['nevel', 'neon', 'bergen', 'kristal'] && paid())
+          || (bg == 'melkweg' && myTier() == 'prime')
+          || (bg == 'custom' && paid() && request.resource.data.keys().hasAny(['customBg']));
+      }
+      // eigen achtergrond (Infinitum+): een bijgesneden jpeg als tekst, maximaal ~250 KB
+      function customOk() {
+        return !request.resource.data.keys().hasAny(['customBg'])
+          || (paid()
+              && request.resource.data.customBg is string
+              && request.resource.data.customBg.size() <= 260000
+              && request.resource.data.customBg.matches('^data:image/jpeg;base64,.*'));
+      }
+      allow read: if isSelf(uid);
+      allow create, update: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['theme', 'bg', 'customBg', 'profileClick', 'privacy', 'notif'])
+        && request.resource.data.theme in ['dark', 'light', 'system']
+        && request.resource.data.bg is string && request.resource.data.bg.size() <= 20
+        && bgOk(request.resource.data.bg)
+        && customOk()
+        && request.resource.data.profileClick is bool
+        && request.resource.data.privacy is map
+        && request.resource.data.privacy.keys().hasOnly(['readReceipts'])
+        && request.resource.data.privacy.readReceipts is bool
+        && request.resource.data.notif is map
+        && request.resource.data.notif.keys().hasOnly(['desktop', 'sound', 'dm', 'server', 'mention', 'requests', 'preview'])
+        && request.resource.data.notif.desktop is bool
+        && request.resource.data.notif.sound is bool
+        && request.resource.data.notif.dm is bool
+        && request.resource.data.notif.server is bool
+        && request.resource.data.notif.get('mention', true) is bool
+        && request.resource.data.notif.requests is bool
+        && request.resource.data.notif.preview is bool;
+      allow delete: if false;
+    }
+
+    // ---------- pushmeldingen: één document per toestel (id = FCM-token). Alleen de Cloud Function leest ze met admin-rechten. ----------
+    match /pushTokens/{token} {
+      function validPushToken() {
+        return request.resource.data.keys().hasOnly(['uid', 'ua', 'updatedAt'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.ua is string && request.resource.data.ua.size() <= 120
+          && request.resource.data.updatedAt == request.time;
+      }
+      allow create: if signedIn() && validPushToken();
+      allow update: if signedIn() && validPushToken();   // toestel wisselt van account: het token wordt aan de nieuwe gebruiker gekoppeld
+      allow get: if signedIn() && resource.data.uid == request.auth.uid;
+      allow list: if false;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // ---------- testpush (Instellingen -> App): jezelf een testmelding laten sturen ----------
+    match /pushTests/{uid} {
+      allow create, update: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['at'])
+        && request.resource.data.at == request.time;
+      allow read, delete: if false;
+    }
+
+    // ---------- online / inactief / offline ----------
+    function validPresence() {
+      return request.resource.data.keys().hasOnly(['state', 'lastSeen'])
+        && request.resource.data.state in ['online', 'idle', 'dnd', 'offline']
+        && request.resource.data.lastSeen == request.time;
+    }
+
+    // Per uid op te halen (niet als lijst). Alleen jezelf mag schrijven, en maximaal 1x per 15 seconden.
+    // presence/<uid> = pc, presence/<uid>_m = telefoon
+    match /presence/{pid} {
+      function ownPresence() { return signedIn() && (pid == request.auth.uid || pid == request.auth.uid + '_m'); }
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if ownPresence() && validPresence();
+      allow update: if ownPresence() && validPresence()
+        && request.time > resource.data.lastSeen + duration.value(15, 's');
+      allow delete: if false;
+    }
+
+    // Je eigen handmatige status (until = 0 betekent voor altijd). Alleen jijzelf.
+    match /presenceSettings/{uid} {
+      allow read: if isSelf(uid);
+      allow create, update: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['mode', 'until'])
+        && request.resource.data.mode in ['auto', 'idle', 'dnd', 'invisible']
+        && request.resource.data.until is number
+        && request.resource.data.until >= 0;
+      allow delete: if false;
+    }
+
+    // ---------- vriendschappen + verzoeken (id = uidA_uidB) ----------
+    match /friendships/{pairId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.users;
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['users', 'requester', 'status', 'names', 'createdAt'])
+        && request.resource.data.users.size() == 2
+        && request.resource.data.users[0] != request.resource.data.users[1]
+        && request.auth.uid in request.resource.data.users
+        && pairId == request.resource.data.users[0] + '_' + request.resource.data.users[1]
+        && request.resource.data.requester == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time;
+
+      // alleen de ontvanger mag accepteren
+      allow update: if signedIn()
+        && request.auth.uid in resource.data.users
+        && resource.data.requester != request.auth.uid
+        && resource.data.status == 'pending'
+        && changed(['status'])
+        && request.resource.data.status == 'accepted';
+
+      // weigeren, annuleren of ontvrienden
+      allow delete: if signedIn() && request.auth.uid in resource.data.users;
+    }
+
+    // ---------- badges (definities + wie ze heeft; alleen te wijzigen via de Firebase Console) ----------
+    match /badges/{badgeId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // ---------- app-instellingen (alleen te wijzigen via de Firebase Console) ----------
+    match /config/{docId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    function validTyping() {
+      return request.resource.data.keys().hasOnly(['at'])
+        && request.resource.data.at == request.time;
+    }
+
+    function validRead() {
+      return request.resource.data.keys().hasOnly(['at'])
+        && request.resource.data.at == request.time;
+    }
+
+    // reageren op een bericht = een klein citaat (`replyTo`) in het nieuwe bericht
+    function validReply(d) {
+      return (!('fwd' in d) || d.fwd == true)
+        && (!('replyTo' in d) || (d.replyTo is map
+        && d.replyTo.keys().hasOnly(['id', 'uid', 'name', 'text'])
+        && d.replyTo.id is string && d.replyTo.id.size() <= 40
+        && d.replyTo.uid is string && d.replyTo.uid.size() <= 40
+        && d.replyTo.name is string && d.replyTo.name.size() <= 20
+        && d.replyTo.text is string && d.replyTo.text.size() <= 100));
+    }
+
+    // bewerken: alleen je eigen bericht, alleen `text` (1-2000 tekens) + `editedAt`
+    function validEdit() {
+      return resource.data.uid == request.auth.uid
+        && changed(['text', 'editedAt'])
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 2000
+        && request.resource.data.editedAt == request.time;
+    }
+
+    // reageren met emoji: iedere deelnemer mag alleen zijn EIGEN regel in `reactions` ({uid: [ids]}) aanpassen
+    function validReaction() {
+      let me = request.auth.uid;
+      let before = resource.data.get('reactions', {});
+      return changed(['reactions'])
+        && request.resource.data.reactions is map
+        && request.resource.data.reactions.diff(before).affectedKeys().hasOnly([me])
+        && request.resource.data.reactions.get(me, []) is list
+        && request.resource.data.reactions.get(me, []).size() <= 8
+        && request.resource.data.reactions.get(me, []).hasOnly(['up', 'heart', 'laugh', 'wow', 'sad', 'fire', 'party', 'eyes']);
+    }
+
+    // ---------- DM's ----------
+    match /chats/{chatId} {
+      allow read: if isFriendChat(chatId);
+      allow write: if isFriendChat(chatId)
+        && request.resource.data.keys().hasOnly(['lastText', 'lastUid', 'lastAt'])
+        && request.resource.data.lastUid == request.auth.uid
+        && request.resource.data.lastText is string
+        && request.resource.data.lastText.size() <= 80
+        && request.resource.data.lastAt == request.time;
+
+      // typ-indicator: max. 1 update per 2 seconden, alleen jezelf
+      match /typing/{uid} {
+        allow read: if isFriendChat(chatId);
+        allow create: if isFriendChat(chatId) && isSelf(uid) && validTyping();
+        allow update: if isFriendChat(chatId) && isSelf(uid) && validTyping()
+          && request.time > resource.data.at + duration.value(2, 's');
+        allow delete: if false;
+      }
+
+      // leesbewijzen: wanneer jij het gesprek voor het laatst las (max. 1 update per 2 seconden)
+      match /reads/{uid} {
+        allow read: if isFriendChat(chatId);
+        allow create: if isFriendChat(chatId) && isSelf(uid) && validRead();
+        allow update: if isFriendChat(chatId) && isSelf(uid) && validRead()
+          && request.time > resource.data.at + duration.value(2, 's');
+        allow delete: if false;
+      }
+
+      match /messages/{mid} {
+        allow read: if isFriendChat(chatId);
+        allow create: if isFriendChat(chatId)
+          && request.resource.data.keys().hasOnly(['uid', 'name', 'text', 'createdAt', 'replyTo', 'fwd'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.name is string
+          && request.resource.data.name.size() <= 20
+          && request.resource.data.text is string
+          && request.resource.data.text.size() >= 1
+          && request.resource.data.text.size() <= 2000
+          && request.resource.data.createdAt == request.time
+          && validReply(request.resource.data);
+        allow delete: if isFriendChat(chatId) && resource.data.uid == request.auth.uid;
+        allow update: if isFriendChat(chatId) && (validEdit() || validReaction());
+      }
+    }
+
+    // ---------- servers: kanalen, rollen en rechten ----------
+    // Rechten: de eigenaar (bij de officiële server: iedere moderator) kan alles. Anderen krijgen rechten via rollen:
+    //   roles{id:{name,color,perms[],pos}}, permIdx{recht:[rol-id]} (index, wordt door de app met roles bijgewerkt), mroles{uid:[rol-id]}
+    // Elk lid heeft impliciet de rol `everyone`.
+    function srvData(sid) { return get(/databases/$(database)/documents/servers/$(sid)).data; }
+    function isMember(s) { return signedIn() && request.auth.uid in s.members; }
+    function isSup(s) { return s.get('official', false) ? isMod() : s.ownerId == request.auth.uid; }
+    function myRoles(s) { return s.get('mroles', {}).get(request.auth.uid, []).concat(['everyone']); }
+    function hasPermIn(s, p) {
+      return isMember(s) && (isSup(s)
+        || myRoles(s).hasAny(s.get('permIdx', {}).get(p, []))
+        || myRoles(s).hasAny(s.get('permIdx', {}).get('admin', [])));
+    }
+    function hasPerm(sid, p) { return hasPermIn(srvData(sid), p); }
+    // kanaal-document (het kanaal `general` hoeft niet te bestaan)
+    function chanData(sid, cid) {
+      return exists(/databases/$(database)/documents/servers/$(sid)/channels/$(cid))
+        ? get(/databases/$(database)/documents/servers/$(sid)/channels/$(cid)).data : {};
+    }
+    function aclHit(s, list) {
+      return list.hasAny(['everyone', 'u:' + request.auth.uid]) || list.hasAny(myRoles(s));
+    }
+    function canViewChan(sid, cid) {
+      let s = srvData(sid); let acl = chanData(sid, cid).get('acl', {});
+      return isMember(s) && (hasPermIn(s, 'admin') || !('view' in acl) || aclHit(s, acl.view));
+    }
+    function canSendChan(sid, cid) {
+      let s = srvData(sid); let acl = chanData(sid, cid).get('acl', {});
+      return isMember(s) && (hasPermIn(s, 'admin')
+        || (canViewChan(sid, cid) && (!('send' in acl) || aclHit(s, acl.send))));
+    }
+    function canModChan(sid, cid) {
+      let s = srvData(sid); let acl = chanData(sid, cid).get('acl', {});
+      return isMember(s) && (hasPermIn(s, 'manageMessages') || ('manage' in acl && aclHit(s, acl.manage)));
+    }
+    // een bericht met mentions: @everyone en rolmentions vragen het recht `mentionAll`
+    function validMentions(sid, d) {
+      return !('mentions' in d) || (d.mentions is map
+        && d.mentions.keys().hasOnly(['everyone', 'roles', 'users'])
+        && d.mentions.get('everyone', false) is bool
+        && d.mentions.get('roles', []) is list && d.mentions.get('roles', []).size() <= 10
+        && d.mentions.get('users', []) is list && d.mentions.get('users', []).size() <= 20
+        && ((d.mentions.get('everyone', false) == false && d.mentions.get('roles', []).size() == 0) || hasPerm(sid, 'mentionAll')));
+    }
+    function validNewMessage(sid, cid) {
+      return request.resource.data.keys().hasOnly(['uid', 'name', 'text', 'createdAt', 'replyTo', 'fwd', 'mentions'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 20
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1
+        && request.resource.data.text.size() <= 2000
+        && request.resource.data.createdAt == request.time
+        && validReply(request.resource.data)
+        && validMentions(sid, request.resource.data)
+        && canSendChan(sid, cid);
+    }
+
+    match /servers/{sid} {
+      function validRoles(r) {
+        return r is map && r.size() <= 25;
+      }
+      function validNewServer() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['name', 'icon', 'ownerId', 'members', 'official', 'createdAt', 'roles', 'permIdx', 'mroles'])
+          && d.name is string && d.name.size() >= 1 && d.name.size() <= 30
+          && d.ownerId == request.auth.uid
+          && d.members == [request.auth.uid]
+          && d.createdAt == request.time
+          && d.get('mroles', {}) == {}
+          && validRoles(d.get('roles', {}))
+          && d.get('icon', '') is string && d.get('icon', '').size() <= 40000;
+      }
+      allow read: if signedIn() && request.auth.uid in resource.data.members;
+
+      // gewone server: iedereen die ingelogd is; de officiële server (id `official`) mag alleen een moderator aanmaken
+      allow create: if signedIn() && validNewServer()
+        && ((sid != 'official' && !('official' in request.resource.data))
+            || (sid == 'official' && isMod() && request.resource.data.get('official', false) == true));
+
+      // 1) joinen met de servercode, of de server verlaten (niet de officiële server); bij verlaten ruim je ook je eigen rollen op
+      allow update: if signedIn()
+        && changed(['members', 'mroles'])
+        && request.resource.data.get('mroles', {}).diff(resource.data.get('mroles', {})).affectedKeys().hasOnly([request.auth.uid])
+        && (
+          (
+            !(request.auth.uid in resource.data.members)
+            && request.auth.uid in request.resource.data.members
+            && request.resource.data.members.hasAll(resource.data.members)
+            && request.resource.data.members.size() == resource.data.members.size() + 1
+            && request.resource.data.get('mroles', {}) == resource.data.get('mroles', {})
+          ) || (
+            request.auth.uid in resource.data.members
+            && request.auth.uid != resource.data.ownerId
+            && !resource.data.get('official', false)
+            && !(request.auth.uid in request.resource.data.members)
+            && resource.data.members.hasAll(request.resource.data.members)
+            && request.resource.data.members.size() == resource.data.members.size() - 1
+          )
+        );
+
+      // 2) een lid uit de server zetten (recht `kick`; niet bij de officiële server, nooit de eigenaar of jezelf);
+      //    alleen de rollen van dat ene lid mogen mee verdwijnen
+      allow update: if signedIn()
+        && changed(['members', 'mroles'])
+        && !resource.data.get('official', false)
+        && hasPermIn(resource.data, 'kick')
+        && resource.data.members.hasAll(request.resource.data.members)
+        && request.resource.data.members.size() == resource.data.members.size() - 1
+        && !(resource.data.ownerId in resource.data.members.toSet().difference(request.resource.data.members.toSet()))
+        && !(request.auth.uid in resource.data.members.toSet().difference(request.resource.data.members.toSet()))
+        && request.resource.data.get('mroles', {}).diff(resource.data.get('mroles', {})).affectedKeys()
+             .hasOnly(resource.data.members.toSet().difference(request.resource.data.members.toSet()).toList());
+
+      // 3) naam en icoon (recht `manageServer`)
+      allow update: if signedIn()
+        && changed(['name', 'icon'])
+        && hasPermIn(resource.data, 'manageServer')
+        && request.resource.data.name is string && request.resource.data.name.size() >= 1 && request.resource.data.name.size() <= 30
+        && request.resource.data.get('icon', '') is string && request.resource.data.get('icon', '').size() <= 40000;
+
+      // 4) rollen, rechtenindex en roltoewijzing (recht `manageRoles`); het recht `admin` kan alleen een beheerder wijzigen
+      allow update: if signedIn()
+        && changed(['roles', 'permIdx', 'mroles'])
+        && hasPermIn(resource.data, 'manageRoles')
+        && validRoles(request.resource.data.get('roles', {}))
+        && request.resource.data.get('permIdx', {}) is map
+        && (request.resource.data.get('permIdx', {}).get('admin', []) == resource.data.get('permIdx', {}).get('admin', [])
+            || hasPermIn(resource.data, 'admin'));
+
+      allow delete: if signedIn() && !resource.data.get('official', false) && resource.data.ownerId == request.auth.uid;
+
+      // kanalen: iedereen in de server mag de lijst lezen (de app verbergt kanalen die je niet mag zien; berichten zijn echt afgeschermd)
+      match /channels/{cid} {
+        function validChannel() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(['name', 'type', 'pos', 'acl', 'createdAt'])
+            && d.name is string && d.name.size() >= 1 && d.name.size() <= 30
+            && d.type in ['text', 'announce']
+            && d.pos is number
+            && d.get('acl', {}) is map
+            && d.get('acl', {}).keys().hasOnly(['view', 'send', 'manage'])
+            && d.get('acl', {}).get('view', []) is list && d.get('acl', {}).get('view', []).size() <= 30
+            && d.get('acl', {}).get('send', []) is list && d.get('acl', {}).get('send', []).size() <= 30
+            && d.get('acl', {}).get('manage', []) is list && d.get('acl', {}).get('manage', []).size() <= 30;
+        }
+        allow read: if isMember(srvData(sid));
+        allow create, update: if hasPerm(sid, 'manageChannels') && validChannel();
+        allow delete: if hasPerm(sid, 'manageChannels') && cid != 'general';
+
+        match /typing/{uid} {
+          allow read: if canViewChan(sid, cid);
+          allow create: if isSelf(uid) && canSendChan(sid, cid) && validTyping();
+          allow update: if isSelf(uid) && canSendChan(sid, cid) && validTyping()
+            && request.time > resource.data.at + duration.value(2, 's');
+          allow delete: if false;
+        }
+        match /reads/{uid} {
+          allow read: if canViewChan(sid, cid);
+          allow create: if isSelf(uid) && canViewChan(sid, cid) && validRead();
+          allow update: if isSelf(uid) && canViewChan(sid, cid) && validRead()
+            && request.time > resource.data.at + duration.value(2, 's');
+          allow delete: if false;
+        }
+        match /messages/{mid} {
+          allow read: if canViewChan(sid, cid);
+          allow create: if validNewMessage(sid, cid);
+          allow delete: if canViewChan(sid, cid) && (resource.data.uid == request.auth.uid || canModChan(sid, cid));
+          allow update: if canViewChan(sid, cid) && (validEdit() || validReaction());
+        }
+      }
+
+      // kanaal `general`: staat op de oude plek (servers/{sid}/messages, typing, reads) zodat bestaande servers gewoon blijven werken
+      match /typing/{uid} {
+        allow read: if canViewChan(sid, 'general');
+        allow create: if isSelf(uid) && canSendChan(sid, 'general') && validTyping();
+        allow update: if isSelf(uid) && canSendChan(sid, 'general') && validTyping()
+          && request.time > resource.data.at + duration.value(2, 's');
+        allow delete: if false;
+      }
+      match /reads/{uid} {
+        allow read: if canViewChan(sid, 'general');
+        allow create: if isSelf(uid) && canViewChan(sid, 'general') && validRead();
+        allow update: if isSelf(uid) && canViewChan(sid, 'general') && validRead()
+          && request.time > resource.data.at + duration.value(2, 's');
+        allow delete: if false;
+      }
+      match /messages/{mid} {
+        allow read: if canViewChan(sid, 'general');
+        allow create: if validNewMessage(sid, 'general');
+        allow delete: if canViewChan(sid, 'general') && (resource.data.uid == request.auth.uid || canModChan(sid, 'general'));
+        allow update: if canViewChan(sid, 'general') && (validEdit() || validReaction());
+      }
+    }
+  }
+}
