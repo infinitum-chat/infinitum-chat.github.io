@@ -45,8 +45,8 @@ export const PUSH_URL = 'https://infinitum-push.someoeneheilig.workers.dev/';
    Foto's gaan rechtstreeks vanuit de browser naar Cloudinary (gratis, geen betaalmethode nodig); in Firestore staat alleen het adres.
    CLOUDINARY_CLOUD = je "Cloud name" (Cloudinary -> Dashboard), CLOUDINARY_PRESET = de naam van je *unsigned* upload preset.
    Leeg laten = foto's versturen staat uit. Zie README, stap "Foto's instellen (Cloudinary)". */
-export const CLOUDINARY_CLOUD = '';
-export const CLOUDINARY_PRESET = '';
+export const CLOUDINARY_CLOUD = 'qbzpu0fs';
+export const CLOUDINARY_PRESET = 'infinitum';
 
 export { getMessaging, getToken, deleteToken };
 export const pushSupported = async () => {
