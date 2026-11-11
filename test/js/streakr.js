@@ -3,7 +3,7 @@
    en je streak groeit. Dit bestand bevat alles: de Streakr-pagina, de camera, de viewer, de top 10, herstellen
    en de badge. app.js geeft via createStreakr({...}) de benodigde hulpfuncties mee.
 
-   Firestore
+   Firestore:
    - streaks/{pairId}    pairId = zelfde id als de vriendschap. { users, names, count, day, sent{uid: dag}, lost, best, incAt, updatedAt }
    - snaps/{id}          { from, to, pair, name, createdAt, src 'cld'|'data', img, w, h, secs, views, state 'new'|'opened'|'gone', openedAt }
    - streakUsers/{uid}   { used }  = hoeveel herstellers je (Prime) al gebruikte
