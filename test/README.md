@@ -269,6 +269,7 @@ Bellen werkt dan alleen als beide kanten direct verbinding kunnen maken, en ande
 
 
 ## Wijzigingen in v0.28: streamgeluid
+- Streamgeluid staat standaard uit; je zet het per stream zelf aan (bij een nieuwe stream weer uit).
 - Elke stream heeft naast de geluid-aan/uit-knop een volumeschuif (0–200%, dubbelklik = 100%), per persoon onthouden op dit toestel.
 - Scherm delen met geluid: je eigen geluid blijft gewoon aan (`suppressLocalAudioPlayback` staat uit) en het geluid van Infinitum zelf wordt uit je stream gefilterd (`restrictOwnAudio`, Chrome/Edge op Windows en Mac), zodat niemand zichzelf terughoort.
 

@@ -368,9 +368,9 @@ export function createVoice(X) {
     for (const p of c.peers.values()) { if (p.vol) p.vol.mute(c.deaf); else p.audio.muted = c.deaf; shareAudio(c, p); }
   }
   // geluid van een gedeeld scherm: uit als je op doof staat, als je het geluid van die stream uitzette, of als je dat scherm verborgen hebt
-  const sMuted = (c) => c.sMuted || (c.sMuted = new Set());
+  const sOnSet = (c) => c.sOn || (c.sOn = new Set());   // v0.28: streamgeluid staat standaard uit, jij zet het per stream aan
   function shareAudio(c, p) {
-    const off = !!(c.deaf || sMuted(c).has(p.uid) || (c.hidden && c.hidden.has(p.uid)));
+    const off = !!(c.deaf || !sOnSet(c).has(p.uid) || (c.hidden && c.hidden.has(p.uid)));
     try { if (p.svol) p.svol.mute(off); else p.saudio.muted = off; } catch {}
   }
   async function pushState(c) {
@@ -533,13 +533,14 @@ export function createVoice(X) {
     const root = h('div', { class: 'vr-multi' }, content);
     const draw = () => {
       const hid = c.hidden || (c.hidden = new Set());
-      for (const u of [...hid]) if (!list.some(p => p.uid === u)) hid.delete(u);   // wie stopt met delen is weer zichtbaar als hij opnieuw deelt
+      for (const u of [...hid]) if (!list.some(p => p.uid === u)) hid.delete(u);
+      for (const u of [...sOnSet(c)]) if (!list.some(p => p.uid === u)) sOnSet(c).delete(u);   // een nieuwe stream begint weer zonder geluid   // wie stopt met delen is weer zichtbaar als hij opnieuw deelt
       const all = list, shown = all.filter(p => !hid.has(p.uid)), hiddenL = all.filter(p => hid.has(p.uid));
       const multi = shown.length > 1, inFs = isFs();
       if (shown.length && !shown.some(p => p.uid === c.watching)) c.watching = shown[0].uid;
       const focus = multi && c.layout === 'focus';
       const tile = (p) => {
-        const pr = c.peers.get(p.uid), big = focus && p.uid === c.watching, sOn = !sMuted(c).has(p.uid);
+        const pr = c.peers.get(p.uid), big = focus && p.uid === c.watching, sOn = sOnSet(c).has(p.uid);
         const vid = mirror ? mirrorVideo(pr) : pr.video;   // naast het pop-outvenster: een tweede videovenster met hetzelfde beeld
         const cap = h('div', { class: 'vr-s-cap' }, h('span', { class: 'vr-s-n', text: p.name }),
           h('button', { class: 'vr-s-b', type: 'button', html: VIC.eyeOff, title: 'Scherm van ' + p.name + ' verbergen', 'aria-label': 'Scherm van ' + p.name + ' verbergen',
@@ -547,8 +548,8 @@ export function createVoice(X) {
           h('div', { class: 'vr-s-vg', onclick: (e) => e.stopPropagation() },
             h('span', { class: 'vr-s-vs' }, volumeSlider(h, 's:' + p.uid, () => c.peers.get(p.uid)?.svol, { label: 'Volume van de stream van ' + p.name, cls: 'vr-s-vol' })),
             h('button', { class: 'vr-s-b' + (sOn ? '' : ' off'), type: 'button', html: sOn ? VIC.volume : VIC.volumeOff, 'aria-pressed': !sOn,
-              title: 'Geluid van de stream van ' + p.name + (sOn ? ' uitzetten' : ' aanzetten'), 'aria-label': 'Geluid van de stream van ' + p.name + (sOn ? ' uitzetten' : ' aanzetten'),
-              onclick: (e) => { e.stopPropagation(); const sm = sMuted(c); if (sm.has(p.uid)) sm.delete(p.uid); else sm.add(p.uid); if (pr) shareAudio(c, pr); redrawAll(); } })),
+              title: 'Geluid van de stream van ' + p.name + (sOn ? ' uitzetten' : ' aanzetten') + (sOn ? '' : ' (staat standaard uit)'), 'aria-label': 'Geluid van de stream van ' + p.name + (sOn ? ' uitzetten' : ' aanzetten'),
+              onclick: (e) => { e.stopPropagation(); const sm = sOnSet(c); if (sm.has(p.uid)) sm.delete(p.uid); else sm.add(p.uid); if (pr) shareAudio(c, pr); redrawAll(); } })),
           h('button', { class: 'vr-s-b', type: 'button', html: inFs ? VIC.shrink : VIC.expand, title: inFs ? 'Volledig scherm sluiten' : 'Alle schermen op volledig scherm', 'aria-label': inFs ? 'Volledig scherm sluiten' : 'Alle schermen op volledig scherm',
             onclick: (e) => { e.stopPropagation(); fs(); } }));
         const go = () => { if (multi && !big) { c.layout = 'focus'; c.watching = p.uid; redrawAll(); } else fs(); };
