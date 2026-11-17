@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Achtergrond Zonsondergang">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#10061e"/>
+      <stop offset=".55" stop-color="#2b0b3b"/>
+      <stop offset="1" stop-color="#5c1745"/>
+    </linearGradient>
+    <radialGradient id="sun" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffd27a" stop-opacity=".95"/>
+      <stop offset=".35" stop-color="#ff7a45" stop-opacity=".6"/>
+      <stop offset="1" stop-color="#ff3d8b" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="g2" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#7c3aed" stop-opacity=".4"/>
+      <stop offset="1" stop-color="#7c3aed" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="disc" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff0b3"/>
+      <stop offset=".55" stop-color="#ffab5c"/>
+      <stop offset="1" stop-color="#ff5c8a"/>
+    </linearGradient>
+    <clipPath id="above"><rect x="0" y="0" width="1920" height="800"/></clipPath>
+    <radialGradient id="fadeTop" cx=".5" cy="0" r="1"><stop offset="0" stop-color="#fff"/><stop offset=".7" stop-color="#000"/></radialGradient>
+    <mask id="starMask"><rect width="1920" height="1080" fill="url(#fadeTop)"/></mask>
+    <pattern id="stars" width="240" height="240" patternUnits="userSpaceOnUse">
+      <circle cx="30" cy="40" r="1.4" fill="#fff" opacity=".8"/>
+      <circle cx="150" cy="25" r="1" fill="#ffd6f0" opacity=".7"/>
+      <circle cx="210" cy="120" r="1.5" fill="#fff" opacity=".55"/>
+      <circle cx="90" cy="150" r="1" fill="#fff" opacity=".6"/>
+      <circle cx="175" cy="205" r="1.1" fill="#ffe3b0" opacity=".5"/>
+    </pattern>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff0b3"/><stop offset="1" stop-color="#f5a623"/></linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#stars)" mask="url(#starMask)"/>
+  <ellipse cx="420" cy="240" rx="620" ry="420" fill="url(#g2)"/>
+  <ellipse cx="960" cy="800" rx="1000" ry="520" fill="url(#sun)"/>
+  <g clip-path="url(#above)">
+    <circle cx="960" cy="800" r="230" fill="url(#disc)" opacity=".95"/>
+    <g fill="#2b0b3b" opacity=".55">
+      <rect x="700" y="690" width="520" height="6"/>
+      <rect x="720" y="725" width="480" height="9"/>
+      <rect x="740" y="765" width="440" height="13"/>
+    </g>
+  </g>
+  <path d="M0 800L180 700L330 780L520 660L700 790L880 740L1040 810L1260 690L1440 780L1620 700L1780 770L1920 720V1080H0Z" fill="#0b0316" opacity=".92"/>
+  <path d="M0 900L240 830L460 910L720 840L980 930L1240 850L1500 920L1720 860L1920 910V1080H0Z" fill="#07020f"/>
+  <g fill="none" stroke="url(#gold)" stroke-linecap="round" stroke-width="3" opacity=".8">
+    <path d="M300 190v22M289 201h22"/>
+    <path d="M1620 150v18M1611 159h18" opacity=".7"/>
+    <path d="M1400 420v26M1387 433h26" opacity=".85"/>
+    <path d="M220 520v16M212 528h16" opacity=".6"/>
+  </g>
+</svg>
