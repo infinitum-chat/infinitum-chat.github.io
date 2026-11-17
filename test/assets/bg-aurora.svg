@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Achtergrond Aurora">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#04121f"/>
+      <stop offset="1" stop-color="#030a16"/>
+    </linearGradient>
+    <linearGradient id="r1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#19e3b1" stop-opacity="0"/>
+      <stop offset=".35" stop-color="#19e3b1" stop-opacity=".75"/>
+      <stop offset=".7" stop-color="#3b82f6" stop-opacity=".7"/>
+      <stop offset="1" stop-color="#7c5cff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="r2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7c5cff" stop-opacity="0"/>
+      <stop offset=".4" stop-color="#8f7bff" stop-opacity=".6"/>
+      <stop offset=".75" stop-color="#ff62d3" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#ff62d3" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#19e3b1" stop-opacity=".3"/>
+      <stop offset="1" stop-color="#19e3b1" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="46"/></filter>
+    <radialGradient id="fade" cx=".5" cy=".4" r=".7"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/></radialGradient>
+    <mask id="gridMask"><rect width="1920" height="1080" fill="url(#fade)"/></mask>
+    <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M80 0H0V80" fill="none" stroke="#fff" stroke-opacity=".045"/>
+    </pattern>
+    <pattern id="stars" width="260" height="260" patternUnits="userSpaceOnUse">
+      <circle cx="40" cy="30" r="1.3" fill="#fff" opacity=".7"/>
+      <circle cx="170" cy="70" r="1" fill="#bff7ff" opacity=".6"/>
+      <circle cx="230" cy="190" r="1.5" fill="#fff" opacity=".5"/>
+      <circle cx="100" cy="160" r="1" fill="#fff" opacity=".6"/>
+      <circle cx="30" cy="225" r="1.2" fill="#d9ffe9" opacity=".55"/>
+    </pattern>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff0b3"/><stop offset="1" stop-color="#f5a623"/></linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <ellipse cx="900" cy="260" rx="900" ry="420" fill="url(#glow)"/>
+  <g filter="url(#blur)">
+    <path d="M-120 430C260 180 640 640 1040 380S1700 150 2040 330V560C1700 400 1380 720 1020 560S300 380-120 640Z" fill="url(#r1)"/>
+    <path d="M-120 640C300 460 700 820 1100 600S1700 420 2040 560V720C1700 620 1400 900 1060 760S320 600-120 800Z" fill="url(#r2)"/>
+    <path d="M300 170C700 40 1100 260 1500 120S1900 100 2100 160V260C1800 220 1500 330 1100 280S600 180 300 260Z" fill="url(#r1)" opacity=".5"/>
+  </g>
+  <rect width="1920" height="1080" fill="url(#grid)" mask="url(#gridMask)"/>
+  <rect width="1920" height="1080" fill="url(#stars)"/>
+  <g fill="none" stroke="url(#gold)" stroke-linecap="round" stroke-width="3" opacity=".8">
+    <path d="M360 150v22M349 161h22"/>
+    <path d="M1580 210v18M1571 219h18" opacity=".7"/>
+    <path d="M1240 880v26M1227 893h26" opacity=".9"/>
+    <path d="M260 840v16M252 848h16" opacity=".6"/>
+  </g>
+</svg>
