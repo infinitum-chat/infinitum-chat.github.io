@@ -13,8 +13,9 @@
      TURN_PASSWORD  (Secret)  het Password uit het dashboard
    (Liever Cloudflare TURN? Dan kun je in plaats daarvan TURN_KEY_ID en TURN_KEY_API_TOKEN instellen; ExpressTURN gaat voor.)
    Zonder deze gegevens werkt bellen nog wel (met alleen STUN), maar lukt het niet op elk netwerk.
-   Muziekstatus via Last.fm (v0.35):
-     LASTFM_KEY     (Secret)  je Last.fm API-key (https://www.last.fm/api/account/create); zonder deze key werkt de muziekstatus niet.  */
+   Muziekstatus via Last.fm (v0.36):
+     LASTFM_KEY     (Secret)  je Last.fm API-key (https://www.last.fm/api/account/create); zonder deze key werkt de muziekstatus niet.
+   Muziek ook als Infinitum dicht is (v0.36): gebruikt dezelfde Cron Trigger (elke minuut) als de spraakkanalen, zie README bij v0.36.  */
 
 const FS = 'https://firestore.googleapis.com/v1';
 const RECENT_MS = 5 * 60 * 1000;   // alleen documenten van de laatste 5 minuten (tegen herhaald afspelen)
@@ -477,7 +478,7 @@ async function sweepVoice(env) {
   return removed;
 }
 
-/* ---------- Last.fm (v0.35): wat speelt iemand nu? ----------
+/* ---------- Last.fm (v0.36): wat speelt iemand nu? ----------
    De app vraagt dit elke ~45 s voor je EIGEN Last.fm-naam (alleen als je muziekstatus aan staat) en zet het resultaat in je profiel.
    De API-key blijft hier in de Worker (niet in de app). Instellen: Cloudflare -> jouw Worker -> Settings -> Variables and Secrets ->
    LASTFM_KEY (Secret) = je Last.fm API-key (gratis: https://www.last.fm/api/account/create). */
@@ -498,7 +499,7 @@ const LFM_ERR = {
 const fetchJson = async (u, ms) => {
   const c = new AbortController(), t = setTimeout(() => c.abort(), ms || 3500);
   try {
-    const r = await fetch(u, { headers: { 'User-Agent': 'Infinitum/0.35.2 (+Cloudflare Worker)', 'Accept': 'application/json' }, signal: c.signal });
+    const r = await fetch(u, { headers: { 'User-Agent': 'Infinitum/0.36 (+Cloudflare Worker)', 'Accept': 'application/json' }, signal: c.signal });
     return { s: r.status, j: r.ok ? await r.json().catch(() => null) : null };
   } catch { return { s: 'err', j: null }; } finally { clearTimeout(t); }
 };
@@ -556,32 +557,31 @@ async function findArt(env, artist, title) {
   artCache.set(key, res);
   return res;
 }
-async function lastfm(req, env, uid, cors) {
-  let body; try { body = await req.json(); } catch { body = {}; }
-  const user = String((body && body.user) || '').trim();
-  if (!LFM_RE.test(user)) return json({ ok: false, code: 'badname', reason: 'Dit is geen geldige Last.fm-naam (2 tot 15 tekens: letters, cijfers, _ en -).' }, 400, cors);
-  if (!env.LASTFM_KEY) return json({ ok: false, code: 'nokey', reason: 'Last.fm is nog niet ingesteld: de beheerder moet LASTFM_KEY in de Worker zetten (zie README).' }, 503, cors);
+// Vraagt Last.fm wat er NU speelt bij `user`. Geeft { status, data } terug; zowel de app (via /lastfm) als de achtergrond-poller (pollMusic) gebruiken dit.
+async function lfmNow(env, user) {
+  if (!LFM_RE.test(user)) return { status: 400, data: { ok: false, code: 'badname', reason: 'Dit is geen geldige Last.fm-naam (2 tot 15 tekens: letters, cijfers, _ en -).' } };
+  if (!env.LASTFM_KEY) return { status: 503, data: { ok: false, code: 'nokey', reason: 'Last.fm is nog niet ingesteld: de beheerder moet LASTFM_KEY in de Worker zetten (zie README).' } };
 
   const ck = user.toLowerCase(), hit = lfmCache.get(ck);
-  if (hit && hit.exp > Date.now()) return json(hit.data, 200, cors);
+  if (hit && hit.exp > Date.now()) return { status: 200, data: hit.data };
 
   const api = 'https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&limit=1&format=json'
     + '&user=' + encodeURIComponent(user) + '&api_key=' + encodeURIComponent(String(env.LASTFM_KEY).trim());
   const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 6000);
   let r, j;
   try {
-    r = await fetch(api, { headers: { 'User-Agent': 'Infinitum/0.35.2 (+Cloudflare Worker)' }, signal: ctl.signal });
+    r = await fetch(api, { headers: { 'User-Agent': 'Infinitum/0.36 (+Cloudflare Worker)' }, signal: ctl.signal });
     j = await r.json().catch(() => null);
   } catch (e) {
-    return json({ ok: false, code: 'down', reason: 'Last.fm antwoordt niet. Probeer het later opnieuw.' }, 502, cors);
+    return { status: 502, data: { ok: false, code: 'down', reason: 'Last.fm antwoordt niet. Probeer het later opnieuw.' } };
   } finally { clearTimeout(to); }
 
   if (j && j.error) {
     const [code, reason] = LFM_ERR[j.error] || ['error', 'Last.fm gaf een fout (' + j.error + ').'];
-    return json({ ok: false, code, reason }, code === 'nouser' || code === 'private' ? 200 : 502, cors);
+    return { status: code === 'nouser' || code === 'private' ? 200 : 502, data: { ok: false, code, reason } };
   }
   const list = j && j.recenttracks ? [].concat(j.recenttracks.track || []) : [];
-  if (!r.ok || !j || !j.recenttracks) return json({ ok: false, code: 'error', reason: 'Last.fm gaf een onverwacht antwoord (' + r.status + ').' }, 502, cors);
+  if (!r.ok || !j || !j.recenttracks) return { status: 502, data: { ok: false, code: 'error', reason: 'Last.fm gaf een onverwacht antwoord (' + r.status + ').' } };
 
   let data = { ok: true, playing: false, v: 3 };
   const t = list[0];
@@ -599,15 +599,114 @@ async function lastfm(req, env, uid, cors) {
   }
   if (lfmCache.size > 500) lfmCache.clear();
   lfmCache.set(ck, { exp: Date.now() + 20000, data });
-  return json(data, 200, cors);
+  return { status: 200, data };
+}
+async function lastfm(req, env, uid, cors) {
+  let body; try { body = await req.json(); } catch { body = {}; }
+  const user = String((body && body.user) || '').trim();
+  const r = await lfmNow(env, user);
+  return json(r.data, r.status, cors);
+}
+
+/* ---------- Muziekstatus op de achtergrond (v0.36) ----------
+   Staat bij iemand Instellingen -> Muziekstatus -> \"Toon mijn muziek ook als ik offline ben\" aan (settings/<uid>.lastfm.bg = true), dan houdt
+   deze functie (elke BG_EVERY_MIN minuten, vanuit de Cron Trigger) zijn muziekstatus bij, ook als Infinitum dicht is. Hij vraagt Last.fm,
+   en schrijft users/<uid>.activity (met bg: true) en de luisterstatistiek users/<uid>.music (voor de muziekbadge).
+   Onzichtbaar (presenceSettings) wordt gerespecteerd: dan wordt de muziek niet getoond.
+   Gratis plan: max. 50 externe aanvragen per Cron-run, daarom BG_MAX mensen per run (gedraaid: bij meer mensen komt iedereen om de beurt aan de beurt).
+   Kosten Firestore per persoon met bg aan: ca. 3 lezingen per run (instellingen, profiel, presence) en 1 schrijfactie per run zolang er muziek speelt. */
+const BG_EVERY_MIN = 2;      // elke 2 minuten (zichtbaar bij anderen: max. ±2 min vertraging; een status wordt na 5,5 min als verlopen gezien)
+const BG_MAX = 5;            // personen per run (5 x ~6 aanvragen blijft ruim onder de 50 van het gratis plan; met een betaald plan mag dit hoger)
+const BG_BEAT = 100000;      // zelfde nummer blijft spelen: tijdstip verversen als het veld ouder is dan 100 s
+const BG_CLEAR = 200000;     // niets meer aan het afspelen: pas wissen als het veld ouder is dan 200 s (twee keer niets gezien), anders flikkert het tussen nummers
+const MUSIC_GAP = 300000;    // tijd tussen twee metingen waarbinnen het nog dezelfde luistersessie is (zelfde waarde als in js/lastfm.js)
+const MUSIC_FLUSH = 60000;   // bij stoppen: hooguit zoveel luistertijd nog bijtellen
+
+// luisterstatistiek bijwerken (zelfde rekenwijze als bump() in js/lastfm.js, en binnen wat firestore.rules toestaan)
+function bumpMusic(m, key, now, stop) {
+  const o = m && typeof m === 'object' ? m : {};
+  const n = Number(o.n) || 0, ms = Number(o.ms) || 0, at = Number(o.at) || 0, gap = now - at;
+  const cont = at > 0 && gap >= 0 && gap <= MUSIC_GAP;
+  if (stop) return cont ? { n, ms: ms + Math.min(gap, MUSIC_FLUSH), at: now, lk: String(o.lk || '') } : { n, ms, at, lk: String(o.lk || '') };
+  const fresh = !cont || String(o.lk || '') !== key;
+  return { n: n + (fresh ? 1 : 0), ms: ms + (cont ? Math.min(gap, MUSIC_GAP) : 0), at: now, lk: key };
+}
+const typed = (v) => typeof v === 'string' ? { stringValue: v } : typeof v === 'boolean' ? { booleanValue: v }
+  : typeof v === 'number' ? (Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v })
+  : v && typeof v === 'object' ? { mapValue: { fields: Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => [k, typed(x)])) } } : { nullValue: null };
+// documenten lezen mét hun updateTime (voor de voorwaarde bij het schrijven); { pad: { d, ut } | null }
+async function getDocsT(env, paths) {
+  const r = await gFetch(env, `${FS}/projects/${pid(env)}/databases/(default)/documents:batchGet`, { method: 'POST', body: JSON.stringify({ documents: paths.map(p => docName(env, p)) }) });
+  if (!r.ok) throw new Error('Firestore lezen mislukt (' + r.status + '): ' + (await r.text()).slice(0, 200));
+  const by = {};
+  for (const x of await r.json()) if (x.found) by[x.found.name] = { d: fromFields(x.found.fields), ut: x.found.updateTime };
+  const out = {};
+  for (const p of paths) out[p] = by[docName(env, p)] || null;
+  return out;
+}
+// alleen `activity` en `music` van een profiel bijwerken; zonder `activity` in `fields` wordt het veld gewist. Mislukt (iemand was net eerder) = overslaan.
+async function putMusic(env, uid, ut, fields) {
+  const r = await gFetch(env, `${FS}/projects/${pid(env)}/databases/(default)/documents:commit`, { method: 'POST', body: JSON.stringify({ writes: [{
+    update: { name: docName(env, 'users/' + uid), fields: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, typed(v)])) },
+    updateMask: { fieldPaths: ['activity', 'music'] },
+    currentDocument: ut ? { updateTime: ut } : { exists: true }
+  }] }) });
+  if (r.ok) return true;
+  const txt = (await r.text()).slice(0, 200);
+  if (r.status === 409 || (r.status === 400 && /FAILED_PRECONDITION|ABORTED/.test(txt))) return false;   // iemand (de app zelf) was net eerder: deze ronde overslaan
+  throw new Error('profiel schrijven mislukt (' + r.status + '): ' + txt);
+}
+async function pollMusic(env, event) {
+  const slot = Math.floor((event && event.scheduledTime ? event.scheduledTime : Date.now()) / 60000);
+  if (slot % BG_EVERY_MIN !== 0) return 0;
+  if (!env.LASTFM_KEY) return 0;
+  const q = await gFetch(env, `${FS}/projects/${pid(env)}/databases/(default)/documents:runQuery`, { method: 'POST', body: JSON.stringify({ structuredQuery: {
+    from: [{ collectionId: 'settings' }],
+    where: { fieldFilter: { field: { fieldPath: 'lastfm.bg' }, op: 'EQUAL', value: { booleanValue: true } } }, limit: 200 } }) });
+  if (!q.ok) throw new Error('instellingen zoeken mislukt (' + q.status + '): ' + (await q.text()).slice(0, 200));
+  const all = (await q.json()).filter(x => x.document).map(x => ({ uid: x.document.name.split('/').pop(), lfm: (fromFields(x.document.fields).lastfm) || {} }))
+    .filter(x => x.lfm.bg === true && x.lfm.show !== false && LFM_RE.test(String(x.lfm.user || ''))).sort((a, b) => a.uid < b.uid ? -1 : 1);
+  if (!all.length) return 0;
+  const run = Math.floor(slot / BG_EVERY_MIN), take = Math.min(BG_MAX, all.length), start = (run * take) % all.length;
+  const batch = Array.from({ length: take }, (_, i) => all[(start + i) % all.length]);
+  const docs = await getDocsT(env, batch.flatMap(x => ['users/' + x.uid, 'presenceSettings/' + x.uid]));
+  const now = Date.now(); let done = 0;
+  for (const { uid, lfm } of batch) {
+    try {
+      const u = docs['users/' + uid]; if (!u) continue;
+      const ps = docs['presenceSettings/' + uid] && docs['presenceSettings/' + uid].d, act = u.d.activity && u.d.activity.k === 'music' ? u.d.activity : null;
+      const invisible = !!(ps && ps.mode === 'invisible' && (!ps.until || Number(ps.until) > now));
+      const stat = u.d.music;
+      if (invisible) {   // Onzichtbaar: niets tonen
+        if (act) { await putMusic(env, uid, u.ut, stat ? { music: bumpMusic(stat, '', now, true) } : {}); done++; }
+        continue;
+      }
+      const res = await lfmNow(env, lfm.user);
+      if (!res.data.ok) {   // privé, bestaat niet, sleutel of Last.fm even weg: bij een blijvende fout de oude status laten verlopen
+        if (act && ['nouser', 'private', 'badname'].includes(res.data.code)) { await putMusic(env, uid, u.ut, stat ? { music: bumpMusic(stat, '', now, true) } : {}); done++; }
+        continue;
+      }
+      if (res.data.playing) {
+        const t = res.data.title, a = res.data.artist, i = res.data.art && okArt(res.data.art) ? res.data.art : '';
+        const same = act && act.t === t && act.a === a && String(act.i || '') === i && act.bg === true;
+        if (same && now - (Number(act.at) || 0) < BG_BEAT) continue;   // niets nieuws (de app zelf was net al bezig)
+        const na = { k: 'music', t, a, at: now, bg: true }; if (i) na.i = i;
+        if (await putMusic(env, uid, u.ut, { activity: na, music: bumpMusic(stat, t + '|' + a, now, false) })) done++;
+      } else if (act && now - (Number(act.at) || 0) >= BG_CLEAR) {
+        if (await putMusic(env, uid, u.ut, stat ? { music: bumpMusic(stat, '', now, true) } : {})) done++;
+      }
+    } catch (e) { console.error('Muziek op de achtergrond mislukt voor ' + uid, e); }
+  }
+  return done;
 }
 
 const json = (obj, status, cors) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json', ...cors } });
 
 export default {
-  // Cron Trigger (elke minuut): achtergebleven spraakdeelnemers opruimen
+  // Cron Trigger (elke minuut): achtergebleven spraakdeelnemers opruimen, en (elke 2 min) de muziekstatus van wie die ook op de achtergrond wil
   async scheduled(event, env, ctx) {
     ctx.waitUntil(sweepVoice(env).catch(e => console.error('Spraak opruimen mislukt', e)));
+    ctx.waitUntil(pollMusic(env, event).catch(e => console.error('Muziek op de achtergrond mislukt', e)));   // v0.36
   },
   async fetch(req, env, ctx) {
     const cors = corsHeaders(req, env);

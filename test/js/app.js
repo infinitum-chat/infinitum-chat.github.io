@@ -1,4 +1,4 @@
-import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=0.35';
+import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=0.36';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -7,19 +7,19 @@ import {
 } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js';
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy,
-  limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp
+  limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp, runTransaction
 } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
 
-import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=0.35';
-import { createStreakr } from './streakr.js?v=0.35';
-import { createLastfm } from './lastfm.js?v=0.35';
-import './fs-idle.js?v=0.35';
-import { createCalls } from './call.js?v=0.35';
-import { createVoice, VIC } from './voice.js?v=0.35';
-import { buildVoiceSettings } from './audio-settings.js?v=0.35';
-import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=0.35';
+import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=0.36';
+import { createStreakr } from './streakr.js?v=0.36';
+import { createLastfm } from './lastfm.js?v=0.36';
+import './fs-idle.js?v=0.36';
+import { createCalls } from './call.js?v=0.36';
+import { createVoice, VIC } from './voice.js?v=0.36';
+import { buildVoiceSettings } from './audio-settings.js?v=0.36';
+import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=0.36';
 
-const APP_VERSION = 'v0.35';
+const APP_VERSION = 'v0.36';
 // telefoon of tablet? Niet alleen op de aanwijzer vertrouwen: sommige Samsung-telefoons (en geïnstalleerde apps) melden hover/fine pointer
 const IS_MOBILE = (() => {
   const ua = navigator.userAgent || '';
@@ -371,7 +371,7 @@ $('#logoutBtn').addEventListener('click', async () => {
   await Promise.race([deviceLogout(), new Promise(r => setTimeout(r, 1500))]);   // dit apparaat uit je lijst   // wachtende instellingen eerst naar Firebase
   await Promise.race([pushDetach(), new Promise(r => setTimeout(r, 1500))]);   // geen meldingen van dit account meer op dit toestel
   await Promise.race([presenceGoOffline(), new Promise(r => setTimeout(r, 1500))]); // meteen offline tonen
-  await Promise.race([LFM.clear(), new Promise(r => setTimeout(r, 1500))]);   // v0.35: muziekstatus meteen weg
+  await Promise.race([LFM.clear(), new Promise(r => setTimeout(r, 1500))]);   // v0.36: muziekstatus meteen weg
   signOut(auth);
 });
 
@@ -597,7 +597,7 @@ function renderUserCard() {
   $('#meAvatar').replaceChildren(dotted(S.me.uid, p?.username, 46));
   $('#meName').textContent = p?.username || '…';
   const mt = $('.me-text');
-  if (mt && !mt.querySelector('.act')) mt.append(LFM.actEl(S.me.uid, 'me-act'));   // v0.35: eigen muziek onder je naam
+  if (mt && !mt.querySelector('.act')) mt.append(LFM.actEl(S.me.uid, 'me-act'));   // v0.36: eigen muziek onder je naam
   LFM.paintAll();
 }
 
@@ -3019,7 +3019,7 @@ const tierAtLeast = (t) => TIER_RANK[tierKey(S.profile)] >= TIER_RANK[t];
 const bgInfo = (id) => BGS.find(b => b.id === id) || (id === 'custom' ? CUSTOM_BG : null);
 // mag je deze achtergrond gebruiken? Zolang het profiel nog niet geladen is vertrouwen we de bewaarde keuze.
 const bgAllowed = (id) => { const b = bgInfo(id); return !!b && (!S.profile || tierAtLeast(b.tier)); };
-const DEF_CFG = { theme: 'dark', bg: 'cosmos', customBg: '', profileClick: true, pins: [], privacy: { readReceipts: true }, lastfm: { user: '', show: true, prompt: 'ask' }, notif: { desktop: false, sound: true, dm: true, server: true, mention: true, requests: true, preview: true, pcQuiet: true } };
+const DEF_CFG = { theme: 'dark', bg: 'cosmos', customBg: '', profileClick: true, pins: [], privacy: { readReceipts: true }, lastfm: { user: '', show: true, prompt: 'ask', bg: false }, notif: { desktop: false, sound: true, dm: true, server: true, mention: true, requests: true, preview: true, pcQuiet: true } };
 const cloneDef = () => JSON.parse(JSON.stringify(DEF_CFG));
 // bouwt een geldige instellingen-set uit onbekende data (Firestore of de oude localStorage-versie)
 function mergeCfg(r) {
@@ -3031,10 +3031,11 @@ function mergeCfg(r) {
   if (typeof r.profileClick === 'boolean') o.profileClick = r.profileClick;
   if (Array.isArray(r.pins)) o.pins = [...new Set(r.pins.filter(x => typeof x === 'string' && x && x.length <= 80))].slice(0, MAX_PINS);
   if (typeof r.privacy?.readReceipts === 'boolean') o.privacy.readReceipts = r.privacy.readReceipts;
-  // v0.35 muziekstatus (Last.fm): naam, tonen aan/uit en of de koppelmelding mag verschijnen
+  // v0.36 muziekstatus (Last.fm): naam, tonen aan/uit en of de koppelmelding mag verschijnen
   if (typeof r.lastfm?.user === 'string' && /^[A-Za-z][A-Za-z0-9_-]{1,14}$/.test(r.lastfm.user)) o.lastfm.user = r.lastfm.user;
   if (typeof r.lastfm?.show === 'boolean') o.lastfm.show = r.lastfm.show;
   if (r.lastfm?.prompt === 'never') o.lastfm.prompt = 'never';
+  if (typeof r.lastfm?.bg === 'boolean') o.lastfm.bg = r.lastfm.bg;   // v0.36: muziek ook tonen als ik offline ben (standaard uit)
   for (const k of Object.keys(o.notif)) if (typeof r.notif?.[k] === 'boolean') o.notif[k] = r.notif[k];
   return o;
 }
@@ -3062,7 +3063,7 @@ function saveSetNow() {
     privacy: { readReceipts: CFG.privacy.readReceipts }, notif: { ...CFG.notif }
   };
   if (CFG.customBg && (!S.profile || tierAtLeast('plus'))) data.customBg = CFG.customBg;
-  if (CFG.lastfm.user || CFG.lastfm.prompt === 'never' || !CFG.lastfm.show) data.lastfm = { user: CFG.lastfm.user, show: CFG.lastfm.show, prompt: CFG.lastfm.prompt };   // v0.35
+  if (CFG.lastfm.user || CFG.lastfm.prompt === 'never' || !CFG.lastfm.show || CFG.lastfm.bg) data.lastfm = { user: CFG.lastfm.user, show: CFG.lastfm.show, prompt: CFG.lastfm.prompt, bg: !!CFG.lastfm.bg };   // v0.36 (+ bg in v0.36)
   setDoc(doc(db, 'settings', S.me.uid), data).catch(e => toast(fbErr(e)));
 }
 // wijzigingen worden even gebundeld (bespaart schrijfacties op de gratis Firebase-versie)
@@ -3783,6 +3784,8 @@ function badgeChips(uid, prof) {
     out.push(h('span', { class: 'badge', style: `--c:${color}`, title: String(b.description || b.name || '') },
       ic, h('b', { text: String(b.name || 'Badge') }), extra ? h('small', { text: extra }) : null));
   }
+  const mus = LFM.badge(uid, prof);   // v0.36: muziekbadge (vanaf 1 nummer dat Infinitum registreerde); klikken toont uren en nummers
+  if (mus) out.push(mus);
   const stk = STK.badge(uid);   // v0.13: Streakr-badge met je plek in de top 10
   if (stk) out.push(stk);
   return out;
@@ -3936,7 +3939,7 @@ async function openProfile(uid) {
   openDialog(
     h('div', { class: 'pf-banner view', style: 'background:' + imgBg(d.banner, uid + 'b', tierKey(d)) }),
     h('div', { class: 'pf-row' }, av,
-      mine ? h('button', { class: 'icon-btn pf-edit', type: 'button', html: I.pencil, title: 'Profiel bewerken', 'aria-label': 'Profiel bewerken', onclick: () => openProfileEditor() }) : null),   // v0.35.5
+      mine ? h('button', { class: 'icon-btn pf-edit', type: 'button', html: I.pencil, title: 'Profiel bewerken', 'aria-label': 'Profiel bewerken', onclick: () => openProfileEditor() }) : null),   // v0.36
     h('h3', { text: d.username }),
     h('p', { class: 'pf-state' }, sIcon(st), [LABEL[st], d.status].filter(Boolean).join(' · ')),
     d.bio ? h('p', { class: 'pf-bio', text: d.bio }) : null,
@@ -3961,7 +3964,7 @@ document.addEventListener('click', e => {
   openProfile(a.dataset.uid);
 });
 
-// de kaart linksboven (foto + naam) opent je eigen profiel zoals anderen het zien; met het potloodje daar ga je naar bewerken (v0.35.5)
+// de kaart linksboven (foto + naam) opent je eigen profiel zoals anderen het zien; met het potloodje daar ga je naar bewerken (v0.36)
 document.querySelector('.sidebar > .me')?.addEventListener('click', e => {
   if (!S.me || e.target.closest('button')) return;
   openProfile(S.me.uid);
@@ -5743,7 +5746,7 @@ setMode('login');
 /* =====================  Bellen (v0.19)  ===================== */
 const VOICE = createVoice({
   h, S, auth, avatar, toast, fbErr,
-  musicBadge: (uid, extra) => LFM.callBadge(uid, extra),   // v0.35.3
+  musicBadge: (uid, extra) => LFM.callBadge(uid, extra),   // v0.36
   workerUrl: () => (PUSH_URL ? PUSH_URL.replace(/\/$/, '') : ''),
   inCall: () => CALLS.inCall(),
   onChange: () => scheduleSidebar(),
@@ -5751,15 +5754,15 @@ const VOICE = createVoice({
 });
 const CALLS = createCalls({
   inVoice: () => VOICE.active(),
-  musicBadge: (uid, extra) => LFM.callBadge(uid, extra),   // v0.35.3
+  musicBadge: (uid, extra) => LFM.callBadge(uid, extra),   // v0.36
   h, $, S, auth, avatar, toast, tierAtLeast, askUpgrade, pushPing, fbErr,
   isBlocked, isDnd: () => manualState() === 'dnd',
   workerUrl: () => (PUSH_URL ? PUSH_URL.replace(/\/$/, '') : '')
 });
 
-/* =====================  Muziekstatus via Last.fm (v0.35)  ===================== */
+/* =====================  Muziekstatus via Last.fm (v0.36)  ===================== */
 const LFM = createLastfm({
-  h, S, PROF, CFG, saveSet, db, doc, updateDoc, deleteField, auth, toast, fbErr, openDialog, closeDialog, dlg,
+  h, S, PROF, CFG, saveSet, db, doc, updateDoc, deleteField, runTransaction, auth, toast, fbErr, openDialog, closeDialog, dlg,
   workerUrl: () => (PUSH_URL ? PUSH_URL.replace(/\/$/, '') : ''),
   presState: (u) => presState(u),
   invisible: () => activeManual() === 'invisible',

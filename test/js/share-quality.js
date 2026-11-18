@@ -68,7 +68,7 @@ const MODE_HINT = { sharp: 'De streamer gebruikt Scherp: minder beelden per seco
 export function applyModeBadge(host, mode) {
   if (!host) return;
   let b = null; for (const k of host.children) if (k.classList.contains('vr-mode')) { b = k; break; }
-  const nudge = () => { const m = host.querySelector(':scope > .cm'); if (m) { const bb = host.querySelector(':scope > .vr-mode'); m.style.setProperty('--cm-x', bb ? (bb.offsetWidth + 6) + 'px' : '0px'); } };   // v0.35.3: het muzieknootje staat naast dit label
+  const nudge = () => { const m = host.querySelector(':scope > .cm'); if (m) { const bb = host.querySelector(':scope > .vr-mode'); m.style.setProperty('--cm-x', bb ? (bb.offsetWidth + 6) + 'px' : '0px'); } };   // v0.36: het muzieknootje staat naast dit label
   if (mode !== 'sharp' && mode !== 'smooth') { b?.remove(); nudge(); return; }
   if (!b) { b = host.ownerDocument.createElement('span'); b.className = 'vr-mode'; host.append(b); }
   if (b.dataset.mode === mode) return;

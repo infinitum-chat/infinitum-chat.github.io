@@ -14,12 +14,12 @@
 
    Scherm delen (net als bij bellen): elke verbinding heeft vanaf het begin een (lege) videoverbinding; het scherm wordt er later alleen
    ingezet (replaceTrack), dus zonder opnieuw te onderhandelen. `sharing` in het aanwezigheidsdocument meldt wie deelt. */
-import { db } from './firebase.js?v=0.35';
-import { createPip } from './pip.js?v=0.35';
-import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=0.35';
-import { fsElement, isFs as isFsEl, toggleFs, exitAnyFs } from './fs.js?v=0.35';
-import { attachVolume, volumeSlider } from './volume.js?v=0.35';
-import { openMic } from './audio-fx.js?v=0.35';
+import { db } from './firebase.js?v=0.36';
+import { createPip } from './pip.js?v=0.36';
+import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=0.36';
+import { fsElement, isFs as isFsEl, toggleFs, exitAnyFs } from './fs.js?v=0.36';
+import { attachVolume, volumeSlider } from './volume.js?v=0.36';
+import { openMic } from './audio-fx.js?v=0.36';
 import {
   collection, doc, setDoc, updateDoc, deleteDoc, getDocs, onSnapshot, query, where, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
@@ -666,7 +666,7 @@ export function createVoice(X) {
           'aria-label': multi && !big ? 'Scherm van ' + p.name + ' groot tonen' : 'Scherm van ' + p.name + (inFs ? ' sluiten' : ' op volledig scherm'),
           title: multi && !big ? 'Klik om groot te tonen' : inFs ? 'Klik om volledig scherm te sluiten' : 'Klik voor volledig scherm' }, vid, cap);
         applyModeBadge(el, p.shareMode);
-        el.append(X.musicBadge(p.uid));   // v0.35.3: nootje naast Scherp/Vloeiend
+        el.append(X.musicBadge(p.uid));   // v0.36: nootje naast Scherp/Vloeiend
         el.addEventListener('click', go);
         el.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); go(); } });
         vid.play().catch(() => {});
