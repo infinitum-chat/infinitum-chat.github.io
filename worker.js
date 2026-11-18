@@ -486,7 +486,7 @@ const LFM_RE = /^[A-Za-z][A-Za-z0-9_-]{1,14}$/;
 const LFM_PLACEHOLDER = '2a96cbd8b46e442fc41c2b86b821562f';   // het standaard-sterretje van Last.fm: geen echte hoes
 const LFM_GRACE = 180;                                        // een nummer dat < 3 min geleden is gescrobbeld telt ook nog als "speelt nu" (sommige apps sturen geen "now playing")
 const LFM_ART_OK = /^https:\/\/(?:lastfm\.freetls\.fastly\.net|is\d-ssl\.mzstatic\.com|(?:e-)?cdns?-images\.dzcdn\.net)\//;   // Last.fm-hoes, of (als Last.fm er geen heeft) Deezer of Apple/iTunes
-const LFM_LONG = 3600;                                         // nooit langer dan een uur na het begin van een nummer als "speelt nog" beschouwen
+const LFM_LONG = 0;                                           // 0 = uit: alleen "Scrobbling now" (en de korte LFM_GRACE) telt als speelt nu; zet een getal (seconden) om een gescrobbeld lang nummer toch nog te tonen
 const LFM_NODUR = 600;                                        // kent Last.fm de lengte niet: 10 min na het begin nog tonen
 const durCache = new Map();                                   // "artiest|titel" -> lengte in seconden (0 = onbekend)
 async function trackSecs(env, artist, title) {
