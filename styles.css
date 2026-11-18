@@ -2035,7 +2035,7 @@ html.has-pfs .main { z-index: 1000; }
 .call-card .call-vid.pfs > .vr-mode { top: 12px; left: 12px; z-index: 3; }
 @media (prefers-reduced-motion: reduce) { .vr-mode { transition: none; } }
 
-/* ---------- muziekstatus via Last.fm (v0.35) ---------- */
+/* ---------- muziekstatus via Last.fm (v0.36) ---------- */
 .act { display: block; color: #a99bff; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 :root[data-theme="light"] .act { color: #5b3fe0; }
 .item-text small.act, .row .item-text small.act { color: #a99bff; font-size: 12.5px; }
@@ -2106,7 +2106,7 @@ html.has-pfs .main { z-index: 1000; }
 .lfm-body ol, .lfm-body ul { margin: 0 0 10px; padding-left: 20px; }
 .lfm-body li { margin: 0 0 6px; }
 
-/* ---------- muzieknootje in gesprekken (v0.35.3) ----------
+/* ---------- muzieknootje in gesprekken (v0.36) ----------
    Zwevend nootje op een stream (naast het label Scherp/Vloeiend) of 'inl' naast een naam. Pop-up met hoes, titel, artiest en links.
    De standen (--cm-l/--cm-t) volgen die van .vr-mode hierboven; --cm-x zet JS zodat het nootje precies naast het label staat. */
 .cm { position: absolute; left: calc(var(--cm-l, 8px) + var(--cm-x, 0px)); top: var(--cm-t, 6px); z-index: 4; display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 999px;
@@ -2138,7 +2138,7 @@ html.has-pfs .main { z-index: 1000; }
 .pf-art.web { background: transparent; }
 .pf-art.web .svc { width: 40px; height: 40px; }
 
-/* v0.35.4: menuutje met links (zelfde vakje als 'gelezen door') */
+/* v0.36: menuutje met links (zelfde vakje als 'gelezen door') */
 .cm-pop .pf-track { margin-top: 0; }
 .pf-go { font-weight: 700; letter-spacing: -1px; }
 .cm-menu { width: 250px; z-index: 3100; }
@@ -2148,5 +2148,15 @@ html.has-pfs .main { z-index: 1000; }
 .cm-why b { color: var(--text); font-weight: 600; }
 .cm-menu[popover] { inset: auto; margin: 0; overflow: visible; color: var(--text); }   /* UA-stijl van popover (midden, zwarte tekst) uit */
 
-/* v0.35.5: potloodje in je eigen profiel (bekijken) */
+/* v0.36: potloodje in je eigen profiel (bekijken) */
 .pf-row .pf-edit { margin: 0 16px 6px auto; }
+
+/* v0.36: muziekbadge (klikbaar) en het vakje met uren en nummers */
+button.badge.music-badge { font: inherit; font-size: 13px; color: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
+button.badge.music-badge:hover, button.badge.music-badge.open, button.badge.music-badge:focus-visible { border-color: var(--c); }
+button.badge.music-badge:focus-visible { outline: 2px solid var(--c); outline-offset: 2px; }
+.mus-pop { width: 240px; }
+.mus-stats { display: flex; gap: 8px; padding: 2px 4px 4px; }
+.mus-s { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--soft, rgba(255, 255, 255, .06)); border: 1px solid var(--line); }
+.mus-s b { font-size: 20px; line-height: 1.15; font-weight: 700; }
+.mus-s small { font-size: 12px; color: var(--muted); }

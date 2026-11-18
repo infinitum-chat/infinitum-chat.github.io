@@ -397,3 +397,24 @@ Bellen werkt dan alleen als beide kanten direct verbinding kunnen maken, en ande
 ## Wijzigingen in v0.35.5
 
 - Klik je op je eigen naam of foto linksboven, dan zie je je profiel zoals anderen het zien. Met het potloodje rechts naast je foto ga je naar bewerken.
+
+## Wijzigingen in v0.36: muziek ook als Infinitum dicht is + muziekbadge
+**Opnieuw uploaden/deployen:** `firestore.rules` (verplicht: nieuwe velden `activity.bg`, `music` en `settings.lastfm.bg`), `worker.js` (plakken in Cloudflare → Deploy), en de site (hosting). `functions/` is niet veranderd. De Cron Trigger (elke minuut, zie v0.34) moet staan, anders werkt het deel "ook als Infinitum dicht is" niet.
+
+### 1. "Toon mijn muziek ook als ik offline ben" (standaard uit)
+- Nieuwe schakelaar bij Instellingen → Muziekstatus (alleen zichtbaar als Last.fm gekoppeld is). Opgeslagen in `settings/<uid>.lastfm.bg` (alleen jijzelf leest dat).
+- **Aan:** je muziekstatus krijgt `bg: true`. Anderen tonen hem dan ook als jij Offline staat, en de **Worker** houdt hem bij terwijl Infinitum dicht is: elke 2 minuten (`BG_EVERY_MIN` in `worker.js`) vraagt de Cron Trigger Last.fm wat er speelt en schrijft `users/<uid>.activity` bij of wist het weer (pas na ±3,5 min niets, zodat het niet flikkert tussen nummers).
+- **Uit (standaard):** alles zoals voorheen: alleen zolang Infinitum open is, en niet als je Offline staat.
+- **Onzichtbaar blijft verbergen**, ook met de schakelaar aan (de Worker leest `presenceSettings/<uid>`). Ook "Toon mijn muziek aan anderen" moet aan staan.
+- **Gratis plan, grenzen:** Cloudflare staat 50 externe aanvragen per Cron-run toe, dus de Worker doet er per run maximaal `BG_MAX` = 5 personen. Zijn er meer mensen met de schakelaar aan, dan komt iedereen om de beurt aan de beurt (en wordt een status minder vaak ververst; na 5,5 min zonder verversing telt hij bij kijkers niet meer mee). Heb je een betaald Workers-plan (1000 aanvragen per run), verhoog dan `BG_MAX`. Firestore per persoon met de schakelaar aan: ca. 3 lezingen per run (instellingen, profiel, presence) en 1 schrijfactie per run zolang er muziek speelt, dus ongeveer 2.200 lezingen en max. 720 schrijfacties per persoon per dag: reken op ca. 20 personen binnen de gratis Firebase-limiet van 50.000 lezingen per dag (zet anders `BG_EVERY_MIN` op 3 of 4).
+- De app zelf (als hij open staat) werkt gewoon door; de Worker slaat een ronde over als de app het net al bijwerkte.
+
+### 2. Muziekbadge
+- Zodra Infinitum **minstens 1 nummer** van je heeft geregistreerd (via Last.fm), krijg je een roze **Muziek**-badge bij je andere badges (profiel en profiel bewerken).
+- **Klik op de badge** (of tik): een vakje met **de luistertijd** (in minuten, vanaf 1 uur in uren, bijv. "12,5 uur") en **het aantal nummers**.
+- Opslag: `users/<uid>.music = { n: nummers, ms: luistertijd in ms, at: tot wanneer geteld, lk: laatste nummer }`. De app (in een transactie) en de Worker (met een voorwaarde op `updateTime`) tellen op dezelfde manier, dus nooit dubbel.
+- Zo wordt geteld: een nummer telt als het nieuw begint (of hetzelfde nummer na >5 min stilte); luistertijd = de tijd tussen twee metingen zolang er muziek speelt (max. 5 min per meting), plus bij stoppen hooguit 1 minuut. Dus **bij benadering**. Alleen wat Infinitum zag telt mee: staat Last.fm niet gekoppeld, de muziekstatus uit of je op Onzichtbaar, dan telt het niet.
+- Fraudebestendig genoeg voor een vriendengroep: `firestore.rules` (`musicOk`) laat de getallen nooit dalen, maximaal 1 nummer per schrijfactie en per 20 s verstreken tijd erbij, en nooit meer luistertijd dan er echt tijd voorbij is gegaan. Iemand met een aangepaste app kan dus niet zomaar uren bij verzinnen.
+- Ontkoppel je Last.fm of zet je tonen uit, dan blijft de badge met je bestaande totalen staan (er komt alleen niets meer bij). Willen jullie dat hij dan verdwijnt, haal dan het veld `music` weg in Firestore.
+- De handleiding in de app (stap 6) noemt de nieuwe schakelaar en de badge.
+

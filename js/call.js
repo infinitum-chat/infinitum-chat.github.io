@@ -10,12 +10,12 @@
      verbindingsgegevens verzameld heeft en sturen die in één keer mee (offer en answer), dus per oproep maar 2 à 3 schrijfacties.
    - config/features.calls = false zet bellen voor iedereen uit (noodschakelaar, net als typingIndicators).
    Cloudflare Worker (worker.js): POST /turn geeft tijdelijke TURN-gegevens, en een pushmelding 'call' laat een gesloten app overgaan. */
-import { db } from './firebase.js?v=0.35';
-import { createPip } from './pip.js?v=0.35';
-import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=0.35';
-import { isFs, toggleFs, exitFs } from './fs.js?v=0.35';
-import { attachVolume, volumeSlider } from './volume.js?v=0.35';
-import { openMic } from './audio-fx.js?v=0.35';
+import { db } from './firebase.js?v=0.36';
+import { createPip } from './pip.js?v=0.36';
+import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=0.36';
+import { isFs, toggleFs, exitFs } from './fs.js?v=0.36';
+import { attachVolume, volumeSlider } from './volume.js?v=0.36';
+import { openMic } from './audio-fx.js?v=0.36';
 import {
   collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
@@ -410,12 +410,12 @@ export function createCalls(X) {
       if (c.video.parentNode !== c.fsBox) c.fsBox.prepend(c.video);
       c.fsBox.querySelector(':scope > .call-cap')?.remove(); c.fsBox.append(scap());
       applyModeBadge(c.fsBox, remoteModeOf(c));
-      c.fsBox.querySelector(':scope > .cm')?.remove(); c.fsBox.append(X.musicBadge(c.peer.uid));   // v0.35.3
+      c.fsBox.querySelector(':scope > .cm')?.remove(); c.fsBox.append(X.musicBadge(c.peer.uid));   // v0.36
     } else {
       vwrap = h('div', { class: 'call-vid', title: 'Klik voor volledig scherm' }, c.video, scap());
       vwrap.onclick = () => enterFs(c);
       applyModeBadge(vwrap, remoteModeOf(c));
-      vwrap.append(X.musicBadge(c.peer.uid));   // v0.35.3
+      vwrap.append(X.musicBadge(c.peer.uid));   // v0.36
       if (pip.active() && c.pipFs) vwrap.classList.add('pfs');   // pop-outvenster: het nep-volledig-scherm blijft staan als de kaart opnieuw getekend wordt
     }
     const inPip = pip.active();

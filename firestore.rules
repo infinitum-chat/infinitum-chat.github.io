@@ -64,19 +64,38 @@ service cloud.firestore {
       // Nieuwe gebruikers krijgen automatisch tier = "free". Jij verandert het in de Firebase Console
       // (Firestore Database → users → document van de persoon → veld tier → waarde aanpassen).
       // Gebruikers kunnen het niet zelf verhogen of wijzigen; moderators/admins alleen via een besluit (zie hieronder).
-      // v0.35 muziekstatus (Last.fm): `activity` = { k: 'music', t: titel, a: artiest, i: hoes (alleen Last.fm-afbeelding, optioneel), at: tijd in ms }.
+      // v0.36 muziekstatus (Last.fm): `activity` = { k: 'music', t: titel, a: artiest, i: hoes (alleen Last.fm-afbeelding, optioneel), at: tijd in ms }.
       // Je zet het alleen bij jezelf; het veld mag ook weer weg (deleteField). Een hoes mag alleen van Last.fm, Deezer (dzcdn.net) of Apple/iTunes (mzstatic.com) komen (geen eigen adressen).
       function activityOk() {
         let d = request.resource.data;
         return !d.keys().hasAny(['activity'])
           || (d.activity is map
-              && d.activity.keys().hasOnly(['k', 't', 'a', 'i', 'at'])
+              && d.activity.keys().hasOnly(['k', 't', 'a', 'i', 'at', 'bg'])
+              && d.activity.get('bg', false) is bool
               && d.activity.get('k', '') == 'music'
               && d.activity.get('t', '') is string && d.activity.get('t', '').size() >= 1 && d.activity.get('t', '').size() <= 120
               && d.activity.get('a', '') is string && d.activity.get('a', '').size() >= 1 && d.activity.get('a', '').size() <= 120
               && d.activity.get('i', '') is string && d.activity.get('i', '').size() <= 300
               && (d.activity.get('i', '') == '' || d.activity.get('i', '').matches('^https://(lastfm\\.freetls\\.fastly\\.net|is[0-9]-ssl\\.mzstatic\\.com|(e-)?cdns?-images\\.dzcdn\\.net)/[^ ()<>]+$'))
               && d.activity.get('at', 0) is number);
+      }
+      // v0.36 muziekbadge: `music` = { n: aantal nummers, ms: luistertijd in ms, at: tijdstip tot waar geteld is (ms), lk: laatste nummer 'titel|artiest' }.
+      // Alleen jij (of de Worker met de servicesleutel) schrijft het. Het mag nooit dalen, en je kunt er niet meer luistertijd bij zetten dan er echt
+      // tijd verstreken is (ms groeit hooguit zo snel als `at`), met hooguit 1 nummer per schrijfactie en 1 per 20 s verstreken tijd.
+      function musicOk() {
+        let d = request.resource.data;
+        let o = resource.data.get('music', { 'n': 0, 'ms': 0, 'at': 0, 'lk': '' });
+        return !d.keys().hasAny(['music'])
+          || (d.music is map
+              && d.music.keys().hasOnly(['n', 'ms', 'at', 'lk'])
+              && d.music.get('n', 0) is int && d.music.get('ms', 0) is int && d.music.get('at', 0) is int
+              && d.music.get('lk', '') is string && d.music.get('lk', '').size() <= 245
+              && d.music.get('n', 0) >= o.get('n', 0) && d.music.get('n', 0) - o.get('n', 0) <= 1
+              && d.music.get('ms', 0) >= o.get('ms', 0) && d.music.get('ms', 0) - o.get('ms', 0) <= 300000
+              && d.music.get('at', 0) >= o.get('at', 0)
+              && d.music.get('ms', 0) - o.get('ms', 0) <= d.music.get('at', 0) - o.get('at', 0) + 5000
+              && (d.music.get('n', 0) - o.get('n', 0)) * 20000 <= d.music.get('at', 0) - o.get('at', 0) + 20000
+              && d.music.get('at', 0) <= request.time.toMillis() + 600000);
       }
       allow read: if signedIn();
       allow create: if isSelf(uid)
@@ -92,9 +111,10 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.usernameLower)).data.uid == uid;
       // status, bio, profielfoto, banner en links mogen door jezelf aangepast worden
       allow update: if isSelf(uid)
-        && changed(['status', 'bio', 'avatar', 'banner', 'links', 'username', 'usernameLower', 'usernameChangedAt', 'activity'])
+        && changed(['status', 'bio', 'avatar', 'banner', 'links', 'username', 'usernameLower', 'usernameChangedAt', 'activity', 'music'])
         && nameOk()
         && activityOk()
+        && musicOk()
         && request.resource.data.status is string
         && request.resource.data.status.size() <= 40
         && request.resource.data.get('bio', '') is string
@@ -445,10 +465,11 @@ service cloud.firestore {
         && request.resource.data.notif.get('mention', true) is bool
         && request.resource.data.notif.requests is bool
         && request.resource.data.notif.preview is bool
-        // v0.35 muziekstatus: je Last.fm-naam (alleen jij leest die), of het tonen aan staat en of de koppelmelding mag verschijnen
+        // v0.36 muziekstatus: je Last.fm-naam (alleen jij leest die), of het tonen aan staat en of de koppelmelding mag verschijnen
         && (!request.resource.data.keys().hasAny(['lastfm'])
             || (request.resource.data.lastfm is map
-                && request.resource.data.lastfm.keys().hasOnly(['user', 'show', 'prompt'])
+                && request.resource.data.lastfm.keys().hasOnly(['user', 'show', 'prompt', 'bg'])
+                && request.resource.data.lastfm.get('bg', false) is bool
                 && request.resource.data.lastfm.get('user', '') is string
                 && request.resource.data.lastfm.get('user', '').matches('^([A-Za-z][A-Za-z0-9_-]{1,14})?$')
                 && request.resource.data.lastfm.get('show', true) is bool

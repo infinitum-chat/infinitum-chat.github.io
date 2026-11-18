@@ -1,4 +1,4 @@
-/* Infinitum: muziekstatus via Last.fm (v0.35).
+/* Infinitum: muziekstatus via Last.fm (v0.36).
    Hoe het werkt:
    - Spotify / Apple Music / YouTube (via de extensie Web Scrobbler) geven door wat je afspeelt aan Last.fm ("scrobbelen").
    - Deze app vraagt (via de Cloudflare Worker, POST /lastfm) elke ~45 s wat er NU bij jouw Last.fm-naam speelt.
@@ -6,6 +6,9 @@
      Anderen lezen dat mee met het profiel dat de app al volgt (vrienden en serverleden), dus er zijn geen extra luisteraars nodig.
    - Houdt de muziek op (of ga je offline), dan wordt het veld gewist; een veld ouder dan STALE telt bij kijkers niet meer mee.
    - Je Last.fm-naam en keuzes staan alleen bij jezelf: settings/{uid}.lastfm = { user, show, prompt }.
+   - v0.36: (1) staat "Toon mijn muziek ook als ik offline ben" aan (settings/{uid}.lastfm.bg), dan krijgt de status `bg: true` en toont iedereen hem ook als je
+       Offline staat of Infinitum dicht is; de Cloudflare Worker (Cron) houdt hem dan zelf bij (zie worker.js, pollMusic). Standaard uit.
+     (2) users/{uid}.music = { n, ms, at, lk }: aantal nummers en luistertijd die Infinitum registreerde; vanaf 1 nummer krijg je de muziekbadge.
    Spelletjes (Minecraft e.d.) zitten er bewust niet in. */
 
 const POLL_VIS = 45000;      // pagina zichtbaar: elke 45 s vragen
@@ -17,9 +20,11 @@ const MISS_CLEAR = 2;        // pas wissen na 2 keer "speelt niets", zodat de pa
 const LFM_NAME = /^[A-Za-z][A-Za-z0-9_-]{1,14}$/;
 const ART_OK = /^https:\/\/(?:lastfm\.freetls\.fastly\.net|is\d-ssl\.mzstatic\.com|(?:e-)?cdns?-images\.dzcdn\.net)\/[^\s"'()<>]{1,260}$/;   // Last.fm, of (als Last.fm geen hoes heeft) Deezer of Apple/iTunes
 const NOTE = '\u266A';
+const MUSIC_GAP = 300000;    // tussen twee metingen hooguit 5 min = nog dezelfde luistersessie (zelfde waarde in worker.js)
+const MUSIC_FLUSH = 60000;   // bij stoppen: hooguit zoveel luistertijd nog bijtellen
 
 export function createLastfm(X) {
-  const { h, S, PROF, db, doc, updateDoc, deleteField, auth, toast, fbErr, openDialog, closeDialog, dlg } = X;
+  const { h, S, PROF, db, doc, updateDoc, deleteField, runTransaction, auth, toast, fbErr, openDialog, closeDialog, dlg } = X;
   const st = { timer: 0, busy: false, miss: 0, last: null, lastTick: 0, state: 'off', msg: '', now: null, warned: false, settingsReady: false, promptTimer: 0, promptTries: 0 };
   const cfg = () => X.CFG.lastfm;
   const base = () => X.workerUrl();
@@ -53,15 +58,30 @@ export function createLastfm(X) {
 
   /* ---------- eigen status publiceren ---------- */
   const meRef = () => doc(db, 'users', S.me.uid);
+  // luisterstatistiek (muziekbadge): n = nummers, ms = luistertijd, at = tot wanneer geteld is, lk = laatste nummer. Zelfde rekenwijze als bumpMusic in worker.js
+  // en binnen wat firestore.rules toestaan (er kan nooit meer tijd bij dan er echt voorbij is gegaan). `stop`: de muziek is net gestopt.
+  function bump(m, key, now, stop) {
+    const o = m && typeof m === 'object' ? m : {};
+    const n = Math.floor(Number(o.n)) || 0, ms = Math.floor(Number(o.ms)) || 0, at = Math.floor(Number(o.at)) || 0, gap = now - at, lk = String(o.lk || '');
+    const cont = at > 0 && gap >= 0 && gap <= MUSIC_GAP;
+    if (stop) return cont ? { n, ms: ms + Math.min(gap, MUSIC_FLUSH), at: now, lk } : { n, ms, at, lk };
+    return { n: n + (!cont || lk !== key ? 1 : 0), ms: ms + (cont ? Math.min(gap, MUSIC_GAP) : 0), at: now, lk: key };
+  }
   async function publish(j) {
     const a = { k: 'music', t: String(j.title).slice(0, 120), a: String(j.artist).slice(0, 120), at: Date.now() };
     if (j.art && ART_OK.test(j.art)) a.i = j.art;
+    if (cfg().bg) a.bg = true;   // v0.36: ook tonen als ik offline ben
     const mine = S.profile?.activity, ref = st.last || mine;
-    const same = ref && ref.t === a.t && ref.a === a.a && (ref.i || '') === (a.i || '');   // v0.35.1: komt de hoes later binnen, dan meteen bijwerken
-    if (same && Date.now() - (ref.at || 0) < BEAT) return;   // niets nieuws (ook als een ander apparaat/tabblad het al deed)
+    const same = ref && ref.t === a.t && ref.a === a.a && (ref.i || '') === (a.i || '') && !!ref.bg === !!a.bg;   // v0.36: komt de hoes later binnen, dan meteen bijwerken
+    if (same && Date.now() - (ref.at || 0) < BEAT) return;   // niets nieuws (ook als een ander apparaat/tabblad/de Worker het al deed)
     st.last = a;
-    try { await updateDoc(meRef(), { activity: a }); }
-    catch (e) {
+    try {
+      // in een transactie: de Worker (achtergrond) en andere apparaten schrijven dezelfde statistiek, zo tellen we nooit dubbel
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(meRef());
+        tx.update(meRef(), { activity: a, music: bump(snap.exists() ? snap.data().music : null, a.t + '|' + a.a, a.at, false) });
+      });
+    } catch (e) {
       st.last = null; console.error(e);
       if (!st.warned) { st.warned = true; toast('Muziekstatus opslaan lukt niet. Heeft de beheerder de nieuwe firestore.rules al gedeployed? ' + fbErr(e)); }
     }
@@ -70,7 +90,17 @@ export function createLastfm(X) {
     const had = st.last || S.profile?.activity;
     st.last = null; st.miss = 0;
     if (!S.me || !had) return;
-    try { await updateDoc(meRef(), { activity: deleteField() }); } catch (e) { console.warn('Muziekstatus wissen mislukt', e); }
+    try {
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(meRef()), m = snap.exists() ? snap.data().music : null;
+        const upd = { activity: deleteField() };
+        if (m && typeof m === 'object') upd.music = bump(m, '', Date.now(), true);   // de laatste luisterminuut nog bijtellen
+        tx.update(meRef(), upd);
+      });
+    } catch (e) {
+      console.warn('Muziekstatus wissen mislukt, nog een keer zonder statistiek', e);
+      try { await updateDoc(meRef(), { activity: deleteField() }); } catch (e2) { console.warn('Muziekstatus wissen mislukt', e2); }
+    }
   }
 
   /* ---------- de lus ---------- */
@@ -196,7 +226,7 @@ export function createLastfm(X) {
     const a = d && d.activity;
     if (!a || a.k !== 'music' || typeof a.t !== 'string' || typeof a.a !== 'string' || !a.t) return null;
     if (!(Date.now() - Number(a.at || 0) < STALE)) return null;
-    if (uid !== S.me?.uid && !noPresence && X.presState(uid) === 'offline') return null;   // offline/onzichtbaar = geen muziek tonen
+    if (uid !== S.me?.uid && !noPresence && !a.bg && X.presState(uid) === 'offline') return null;   // offline/onzichtbaar = geen muziek tonen, tenzij die persoon "ook offline tonen" aan heeft (v0.36)
     return a;
   }
   const line = (a) => `${NOTE} ${a.t} \u2013 ${a.a}`;
@@ -224,7 +254,7 @@ export function createLastfm(X) {
     return img;
   }
 
-  /* ---------- menuutje met de links (v0.35.4) ---------- */
+  /* ---------- menuutje met de links (v0.36) ---------- */
   // Zelfde uiterlijk als het "gelezen door"-vakje. Opent door op het nummer te klikken of te tikken (of op de drie puntjes), niet alleen op de puntjes.
   let MENU = null;
   const hostFor = (el) => { const d = el.ownerDocument; return el.closest('dialog') || (d.fullscreenElement && d.fullscreenElement !== d.body ? d.fullscreenElement : null) || d.body; };
@@ -234,15 +264,12 @@ export function createLastfm(X) {
     m.doc.removeEventListener('pointerdown', m.out, true); m.doc.removeEventListener('keydown', m.key, true); m.doc.removeEventListener('scroll', m.scr, true);
     m.el.remove(); m.anchor.classList.remove('open'); m.anchor.setAttribute('aria-expanded', 'false');
   }
-  function openMenu(anchor, a, onOpen) {
+  // algemeen vakje onder een knop (links bij een nummer, of de statistiek bij de muziekbadge); makeEl bouwt het vakje
+  function openPanel(anchor, makeEl, onOpen) {
     if (MENU && MENU.anchor === anchor) { closeMenu(); return; }
     closeMenu();
-    const doc = anchor.ownerDocument, win = doc.defaultView || window, vid = isVideo(a);
-    const rows = trackLinks(a).map(([id, u]) => { const r = linkEl(id, u, 'who-row cm-item', a); r.addEventListener('click', () => setTimeout(closeMenu, 0)); return r; });
-    const el = h('div', { class: 'who cm-menu', role: 'menu', popover: 'manual', 'aria-label': 'Nummer openen of zoeken' },
-      h('div', { class: 'who-h', text: vid ? 'Zoeken' : 'Open in' }),
-      h('div', { class: 'who-list' }, rows),
-      vid ? h('div', { class: 'cm-why' }, h('b', { text: 'Waarom een web-icoon?' }), h('span', { text: WHY })) : null);
+    const doc = anchor.ownerDocument, win = doc.defaultView || window;
+    const el = makeEl();
     el.addEventListener('click', e => e.stopPropagation());
     hostFor(anchor).append(el);
     // Popover (top layer): een profielvenster is een <dialog> met overflow en animatie, daarin zou een los vakje worden afgeknipt of verschoven
@@ -258,6 +285,41 @@ export function createLastfm(X) {
     doc.addEventListener('pointerdown', m.out, true); doc.addEventListener('keydown', m.key, true); doc.addEventListener('scroll', m.scr, true);
     m.w = setInterval(() => { if (!anchor.isConnected) closeMenu(); }, 1000);
     onOpen?.();
+  }
+  function openMenu(anchor, a, onOpen) {
+    openPanel(anchor, () => {
+      const vid = isVideo(a);
+      const rows = trackLinks(a).map(([id, u]) => { const r = linkEl(id, u, 'who-row cm-item', a); r.addEventListener('click', () => setTimeout(closeMenu, 0)); return r; });
+      return h('div', { class: 'who cm-menu', role: 'menu', popover: 'manual', 'aria-label': 'Nummer openen of zoeken' },
+        h('div', { class: 'who-h', text: vid ? 'Zoeken' : 'Open in' }),
+        h('div', { class: 'who-list' }, rows),
+        vid ? h('div', { class: 'cm-why' }, h('b', { text: 'Waarom een web-icoon?' }), h('span', { text: WHY })) : null);
+    }, onOpen);
+  }
+
+  /* ---------- muziekbadge (v0.36) ---------- */
+  // Staat op je profiel zodra Infinitum minstens 1 nummer van je heeft geregistreerd (users/{uid}.music.n >= 1). Klikken toont hoeveel uur en hoeveel nummers.
+  const fmtN = (n) => Number(n).toLocaleString('nl-NL');
+  function fmtTime(ms) {
+    const min = Math.floor(Math.max(0, ms) / 60000);
+    return min < 60 ? min + ' min' : (min / 60).toLocaleString('nl-NL', { maximumFractionDigits: 1 }) + ' uur';
+  }
+  function statsPanel(n, ms) {
+    return h('div', { class: 'who cm-menu mus-pop', role: 'dialog', popover: 'manual', 'aria-label': 'Muziek geluisterd via Infinitum' },
+      h('div', { class: 'who-h', text: 'Geluisterd via Infinitum' }),
+      h('div', { class: 'mus-stats' },
+        h('div', { class: 'mus-s' }, h('b', { text: fmtTime(ms) }), h('small', { text: 'luistertijd' })),
+        h('div', { class: 'mus-s' }, h('b', { text: fmtN(n) }), h('small', { text: n === 1 ? 'nummer' : 'nummers' }))),
+      h('div', { class: 'cm-why' }, h('span', { text: 'Alleen muziek die Infinitum heeft geregistreerd (via Last.fm). De tijd is bij benadering.' })));
+  }
+  function badge(uid, prof) {
+    const m = prof && prof.music, n = Math.floor(Number(m && m.n)) || 0;
+    if (n < 1) return null;
+    const ms = Math.max(0, Number(m.ms) || 0);
+    const el = h('button', { class: 'badge music-badge', type: 'button', style: '--c:#ff62d3', title: 'Klik om te zien hoeveel er is geluisterd', 'aria-haspopup': 'dialog', 'aria-expanded': 'false' },
+      h('span', { class: 'bd-ic', text: NOTE }), h('b', { text: 'Muziek' }));
+    el.addEventListener('click', e => { e.stopPropagation(); openPanel(el, () => statsPanel(n, ms)); });
+    return el;
   }
   // het nummer als kaartje: hoes, titel, artiest en drie puntjes. Klikken ergens op het kaartje opent het menuutje.
   function trackCard(a, onOpen) {
@@ -275,7 +337,7 @@ export function createLastfm(X) {
   }
 
 
-  /* ---------- muzieknootje in gesprekken en streams (v0.35.3) ---------- */
+  /* ---------- muzieknootje in gesprekken en streams (v0.36) ---------- */
   // Klein nootje bij iemands naam of op diens stream (naast het label Scherp/Vloeiend). Muis erboven (of tikken op een telefoon) = pop-up met
   // hoes, titel, artiest en de links. Alleen zichtbaar als die persoon nu muziek luistert (zelfde regels als de rest van de muziekstatus).
   const HOVER = window.matchMedia ? matchMedia('(hover: hover) and (pointer: fine)') : { matches: false };
@@ -392,6 +454,9 @@ export function createLastfm(X) {
     if (linked) items.push(item('muziek tonen zichtbaar anderen verbergen privacy last.fm', false,
       toggle('Toon mijn muziek aan anderen', 'Vrienden, serverleden en wie je profiel opent zien dan welk nummer je nu afspeelt. Uit = niemand ziet het. Staat je status op Offline of Onzichtbaar, dan zien anderen het ook niet.',
         cfg().show, (on) => { cfg().show = on; X.saveSet(); refresh(); })));
+    if (linked) items.push(item('muziek offline achtergrond dicht tonen last.fm', false,
+      toggle('Toon mijn muziek ook als ik offline ben', 'Standaard uit. Aan = anderen zien je muziek ook als je Offline staat of Infinitum dicht is: Infinitum kijkt dan zelf op Last.fm (ongeveer elke 2 minuten), je hoeft de app niet open te hebben. Onzichtbaar blijft je muziek verbergen. Werkt alleen als Toon mijn muziek aan anderen aan staat.',
+        !!cfg().bg, (on) => { cfg().bg = on; X.saveSet(); refresh(); })));
     items.push(item('melding koppelen herinnering last.fm', false,
       toggle('Melding om Last.fm te koppelen', 'Een melding als je Infinitum opent en nog niets hebt gekoppeld. Uit = die melding komt niet meer.',
         cfg().prompt !== 'never', (on) => { cfg().prompt = on ? 'ask' : 'never'; X.saveSet(); })));
@@ -406,7 +471,7 @@ export function createLastfm(X) {
       h('div', { class: 'dlg-actions' },
         h('button', { class: 'ghost', type: 'button', text: 'Annuleren', onclick: closeDialog }),
         h('button', { class: 'btn-no', type: 'button', text: 'Ontkoppelen', onclick: () => {
-          cfg().user = ''; cfg().show = true; X.saveSet(); closeDialog(); refresh(); X.rerender(); toast('Last.fm is ontkoppeld.');
+          cfg().user = ''; cfg().show = true; cfg().bg = false; X.saveSet(); closeDialog(); refresh(); X.rerender(); toast('Last.fm is ontkoppeld.');
         } })));
   }
 
@@ -496,7 +561,8 @@ export function createLastfm(X) {
           'Je vrienden zien het in hun lijst met directe berichten, in de chatkop, in de ledenlijst van een server en in je profiel.')),
       step(6, 'Wie ziet dit, en hoe zet ik het uit?',
         ul('Je muziek is zichtbaar voor andere Infinitum-leden: vrienden, mensen in dezelfde server en wie je profiel opent.',
-          'Staat je status op Offline of Onzichtbaar, dan wordt je muziek niet getoond.',
+          'Staat je status op Offline of Onzichtbaar, dan wordt je muziek niet getoond. Wil je dat het wel kan als je Offline staat of Infinitum dicht is? Zet dan in Instellingen, Muziekstatus, \u201cToon mijn muziek ook als ik offline ben\u201d aan (staat standaard uit). Infinitum kijkt dan zelf op Last.fm, ongeveer elke 2 minuten. Onzichtbaar blijft je muziek altijd verbergen.',
+          'Muziekbadge: zodra Infinitum minstens 1 nummer van je heeft geregistreerd, krijg je een Muziek-badge op je profiel. Klikken op die badge laat zien hoeveel uur en hoeveel nummers Infinitum van je heeft geregistreerd (alleen wat via Last.fm is doorgekomen, de tijd is bij benadering).',
           'Uitzetten kan altijd: Instellingen, Muziekstatus, en zet Toon mijn muziek aan anderen uit. Of kies Ontkoppelen.',
           'De melding om te koppelen kun je uitzetten met Niet meer tonen, of later weer aanzetten bij Instellingen, Muziekstatus.')),
       step(7, 'Problemen oplossen',
@@ -546,5 +612,5 @@ export function createLastfm(X) {
     document.body.append(card);
   }
 
-  return { start, stop, refresh, clear, settingsLoaded, activityOf, actEl, paintAll, callBadge, profileBlock, settingsSec, openGuide, openSetup, cleanName };
+  return { start, stop, refresh, clear, settingsLoaded, activityOf, actEl, paintAll, callBadge, profileBlock, badge, settingsSec, openGuide, openSetup, cleanName };
 }
