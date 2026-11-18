@@ -3924,7 +3924,7 @@ function openProfileEditor() {
 /* --- profiel van een ander bekijken --- */
 async function openProfile(uid) {
   await STK.loadTop().catch(() => {});
-  const mine = uid === S.me.uid;   // je eigen profiel zie je hier precies zoals anderen het zien; bewerken kan alleen via je naam/foto linksboven
+  const mine = uid === S.me.uid;   // je eigen profiel zie je hier precies zoals anderen het zien; bewerken kan met het potloodje
   let d = PROF[uid];
   try { const s = await getDoc(doc(db, 'users', uid)); if (s.exists()) d = s.data(); } catch {}
   if (!d) { toast('Profiel niet gevonden.'); return; }
@@ -3935,14 +3935,15 @@ async function openProfile(uid) {
   paintBig(av, d.avatar, uid, d.username);
   openDialog(
     h('div', { class: 'pf-banner view', style: 'background:' + imgBg(d.banner, uid + 'b', tierKey(d)) }),
-    h('div', { class: 'pf-row' }, av),
+    h('div', { class: 'pf-row' }, av,
+      mine ? h('button', { class: 'icon-btn pf-edit', type: 'button', html: I.pencil, title: 'Profiel bewerken', 'aria-label': 'Profiel bewerken', onclick: () => openProfileEditor() }) : null),   // v0.35.5
     h('h3', { text: d.username }),
     h('p', { class: 'pf-state' }, sIcon(st), [LABEL[st], d.status].filter(Boolean).join(' · ')),
     d.bio ? h('p', { class: 'pf-bio', text: d.bio }) : null,
     LFM.profileBlock(uid, d),
     badges.length ? h('div', { class: 'pf-sec' }, h('h4', { text: 'Badges' }), h('div', { class: 'chips' }, badges)) : null,
     links.length ? h('div', { class: 'pf-sec' }, h('h4', { text: 'Links' }), h('div', { class: 'chips' }, links)) : null,
-    mine ? h('p', { class: 'hint', text: 'Zo zien anderen jouw profiel. Bewerken kan via je naam of foto linksboven.' }) : null,
+    mine ? h('p', { class: 'hint', text: 'Zo zien anderen jouw profiel. Bewerken kan met het potloodje.' }) : null,
     h('div', { class: 'dlg-actions' },
       f && !mine ? h('button', { class: 'btn-ok', type: 'button', text: 'Bericht', onclick: () => { closeDialog(); S.activeDm = f.id; S.tab = 'dms'; renderTabs(); renderSidebar(); showMain(); } }) : null,
       h('button', { class: 'ghost', type: 'button', onclick: closeDialog, text: 'Sluiten' })),
@@ -3960,10 +3961,10 @@ document.addEventListener('click', e => {
   openProfile(a.dataset.uid);
 });
 
-// de kaart linksboven (foto + naam) is de enige plek waar je je eigen profiel kunt bewerken
+// de kaart linksboven (foto + naam) opent je eigen profiel zoals anderen het zien; met het potloodje daar ga je naar bewerken (v0.35.5)
 document.querySelector('.sidebar > .me')?.addEventListener('click', e => {
   if (!S.me || e.target.closest('button')) return;
-  openProfileEditor();
+  openProfile(S.me.uid);
 });
 
 // zijbalk (DM-lijst): foto aanklikken opent het profiel i.p.v. het gesprek, tenzij uitgezet in de instellingen

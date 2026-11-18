@@ -2147,3 +2147,6 @@ html.has-pfs .main { z-index: 1000; }
 .cm-why { display: flex; flex-direction: column; gap: 3px; margin: 8px 4px 2px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.4; color: var(--muted); }
 .cm-why b { color: var(--text); font-weight: 600; }
 .cm-menu[popover] { inset: auto; margin: 0; overflow: visible; color: var(--text); }   /* UA-stijl van popover (midden, zwarte tekst) uit */
+
+/* v0.35.5: potloodje in je eigen profiel (bekijken) */
+.pf-row .pf-edit { margin: 0 16px 6px auto; }

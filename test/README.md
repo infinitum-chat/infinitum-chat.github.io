@@ -393,3 +393,7 @@ Bellen werkt dan alleen als beide kanten direct verbinding kunnen maken, en ande
 - Echt nummer: Spotify, Apple Music, SoundCloud, YouTube Music en Beatport (zoeklinks op titel en artiest, want Last.fm geeft niet door waar je luistert).
 - Geen hoes gevonden (festival, liveset, mix, vaak via Web Scrobbler): web-icoontje op de plek van de hoes. Het menuutje heeft dan "Zoek op het web", Spotify, Apple Music, SoundCloud, YouTube Music, YouTube en Beatport, plus een korte uitleg waarom het een web-icoon is. "Zoek op het web" gebruikt op Android (Chrome/Samsung Internet) je eigen standaard zoekmachine; overal anders Google, want een website kan niet zien welke zoekmachine je apparaat gebruikt.
 - Geen nieuwe regels, geen nieuwe worker en geen nieuwe Firestore-velden nodig: alleen de bestanden uploaden.
+
+## Wijzigingen in v0.35.5
+
+- Klik je op je eigen naam of foto linksboven, dan zie je je profiel zoals anderen het zien. Met het potloodje rechts naast je foto ga je naar bewerken.
