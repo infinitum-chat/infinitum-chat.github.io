@@ -486,6 +486,18 @@ const LFM_RE = /^[A-Za-z][A-Za-z0-9_-]{1,14}$/;
 const LFM_PLACEHOLDER = '2a96cbd8b46e442fc41c2b86b821562f';   // het standaard-sterretje van Last.fm: geen echte hoes
 const LFM_GRACE = 180;                                        // een nummer dat < 3 min geleden is gescrobbeld telt ook nog als "speelt nu" (sommige apps sturen geen "now playing")
 const LFM_ART_OK = /^https:\/\/(?:lastfm\.freetls\.fastly\.net|is\d-ssl\.mzstatic\.com|(?:e-)?cdns?-images\.dzcdn\.net)\//;   // Last.fm-hoes, of (als Last.fm er geen heeft) Deezer of Apple/iTunes
+const LFM_LONG = 3600;                                         // nooit langer dan een uur na het begin van een nummer als "speelt nog" beschouwen
+const LFM_NODUR = 600;                                        // kent Last.fm de lengte niet: 10 min na het begin nog tonen
+const durCache = new Map();                                   // "artiest|titel" -> lengte in seconden (0 = onbekend)
+async function trackSecs(env, artist, title) {
+  const key = (artist + '|' + title).toLowerCase(), hit = durCache.get(key);
+  if (hit !== undefined) return hit;
+  const r = await fetchJson('https://ws.audioscrobbler.com/2.0/?method=track.getinfo&autocorrect=1&format=json&artist=' + encodeURIComponent(artist)
+    + '&track=' + encodeURIComponent(title) + '&api_key=' + encodeURIComponent(String(env.LASTFM_KEY).trim()));
+  const d = r.s === 200 && r.j && r.j.track ? Math.round(Number(r.j.track.duration) / 1000) || 0 : -1;
+  if (d >= 0) { if (durCache.size > 500) durCache.clear(); durCache.set(key, d); }   // bij een fout niet onthouden
+  return Math.max(d, 0);
+}
 const artCache = new Map();                                   // "artiest|titel" -> { exp, art }; hoezen veranderen niet, dus lang bewaren
 const lfmCache = new Map();                                   // naam -> { exp, data }; alleen in dit isolate (de Cache API werkt niet op *.workers.dev)
 const LFM_ERR = {
@@ -588,8 +600,13 @@ async function lfmNow(env, user) {
   if (t) {
     const now = t['@attr'] && String(t['@attr'].nowplaying) === 'true';
     const uts = Number(t.date && t.date.uts) || 0;
-    const fresh = !now && uts && (Date.now() / 1000 - uts) < LFM_GRACE;
     const title = clip(t.name, 120), artist = clip(t.artist && (t.artist['#text'] || t.artist.name), 120);
+    const age = uts ? Date.now() / 1000 - uts : Infinity;   // `uts` = wanneer het nummer BEGON; na het scrobbelen verdwijnt de "speelt nu"-vlag
+    let fresh = !now && uts && age < LFM_GRACE;
+    if (!now && uts && !fresh && age < LFM_LONG && title && artist) {   // lang nummer (of mix): al gescrobbeld maar nog niet afgelopen = speelt nog
+      const d = await trackSecs(env, artist, title);
+      fresh = d > 0 ? age < d + 90 : age < LFM_NODUR;
+    }
     if ((now || fresh) && title && artist) {
       let art = pickLfmImg(t.image), dbg = '';
       if (!art) { const f = await findArt(env, artist, title); art = f.art; dbg = f.dbg; }
