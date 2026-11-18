@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 10 446 86" width="446" height="86" role="img" aria-labelledby="t">
+  <title id="t">Infinitum</title>
+  <defs>
+    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="0" y1="-50" x2="0" y2="0">
+      <stop offset="0" stop-color="#1b1f3b"/>
+      <stop offset="1" stop-color="#090b1c"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffd24d"/>
+      <stop offset=".5" stop-color="#ffab1a"/>
+      <stop offset="1" stop-color="#f0780f"/>
+    </linearGradient>
+    <linearGradient id="gemfill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c5cff" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#ff62d3" stop-opacity=".16"/>
+    </linearGradient>
+    <clipPath id="caps"><rect x="-10" y="-50" width="380" height="50"/></clipPath>
+  </defs>
+  <g transform="translate(10 41)">
+    <path d="M14 0H42L56 16L28 48L0 16Z" fill="url(#gemfill)" stroke="#090b1c" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M0 16H56M14 0L21 16L28 48L35 16L42 0M21 16L28 0L35 16" fill="none" stroke="#090b1c" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(88 90)">
+    <g clip-path="url(#caps)" fill="none" stroke="url(#ink)" stroke-width="9" stroke-linejoin="miter" stroke-miterlimit="10">
+      <path d="M4.5 0V-50"/>
+      <path d="M25.5 0V-50L55.5 0V-50"/>
+      <path d="M76.5 0V-50M72 -45.5H98M76.5 -23H94"/>
+      <path d="M114.5 0V-50"/>
+      <path d="M135.5 0V-50L165.5 0V-50"/>
+      <path d="M186.5 0V-38"/>
+      <path d="M203 -45.5H239M221 0V-50"/>
+      <path d="M255.5 -50V-19.5A15 15 0 0 0 285.5 -19.5V-50"/>
+      <path d="M306.5 0V-50L329.5 -14L352.5 -50V0"/>
+    </g>
+    <g transform="translate(186.5 -58) rotate(-15)">
+      <path d="M0 -13V13M-13 0H13" fill="none" stroke="url(#gold)" stroke-width="6" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>
