@@ -408,7 +408,7 @@ export function createAdminTools(D) {
                 gauge('Opslag (schatting)', est, SPARK.bytes, fmtBytes, 'schatting op basis van aantal documenten')),
               h('p', { class: 'stg-note', text: `Sinds de laatste dagreset (middernacht Pacific, ${new Date(fs.since).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })} jouw tijd). Op het Blaze-plan gelden deze grenzen niet, maar kosten ze wel geld boven de gratis hoeveelheid. Metingen lopen een paar minuten achter.` }))
             : h('div', { class: 'panel stg-card' }, h('div', { class: 'du-warn info' }, h('span', { html: ADM_IC.alert }), h('div', {}, h('b', { text: 'Gebruik kan nog niet worden uitgelezen' }),
-                h('p', { text: (fs?.reason || 'onbekende reden') + '. Geef de servicesleutel van je Worker de rol “Monitoring Viewer”: Google Cloud Console → IAM → het firebase-adminsdk-account → Rol toevoegen → Monitoring Viewer.' }),
+                h('p', { text: 'Melding van Google: ' + (fs?.reason || 'onbekende reden') + ' (Hoort hier iets over rechten bij? Controleer in IAM of het firebase-adminsdk-account de rol “Monitoring Viewer” heeft en wacht een paar minuten.)' }),
                 h('a', { class: 'glow sm', href: 'https://console.cloud.google.com/iam-admin/iam?project=chat-a5794', target: '_blank', rel: 'noopener noreferrer', text: 'Open IAM ↗' }))),
               h('p', { class: 'stg-note', text: 'Tot die tijd kun je het gebruik bekijken in Firebase.' }),
               h('a', { class: 'ghost sm', href: FB + '/usage', target: '_blank', rel: 'noopener noreferrer', text: 'Firebase → Gebruik ↗' })));

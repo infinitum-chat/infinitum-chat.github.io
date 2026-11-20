@@ -1063,7 +1063,7 @@ async function adminExternal(env, B) {
           'aggregation.alignmentPeriod': secs + 's', 'aggregation.perSeriesAligner': 'ALIGN_SUM', 'aggregation.crossSeriesReducer': 'REDUCE_SUM' });
         const r = await bFetch(env, B, `https://monitoring.googleapis.com/v3/projects/${pid(env)}/timeSeries?${q}`);
         const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(r.status === 403 ? 'De servicesleutel mag het gebruik niet lezen' : 'Cloud Monitoring gaf fout ' + r.status);
+        if (!r.ok) throw new Error('Cloud Monitoring ' + r.status + ': ' + String((j.error && j.error.message) || '').slice(0, 260));
         return (j.timeSeries || []).reduce((a, s) => a + (s.points || []).reduce((x, p) => x + Number(p.value?.int64Value || p.value?.doubleValue || 0), 0), 0);
       };
       const [reads, writes, deletes] = await Promise.all([one('read_count'), one('write_count'), one('delete_count')]);
