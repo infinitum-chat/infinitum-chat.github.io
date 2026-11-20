@@ -134,13 +134,24 @@ button { cursor: pointer; }
 .tabs { display: flex; gap: 2px; }
 .tab {
   position: relative;
+  display: inline-flex; align-items: center; gap: 8px;
   background: none; border: 0;
   color: var(--muted);
   font: 700 17px var(--font);
   padding: 10px 14px;
-  transition: color .2s;
+  transition: color .2s, flex-grow .3s ease;
 }
 .tab:hover, .tab.active { color: #fff; }
+.tab-ic { display: inline-grid; place-items: center; flex: none; }
+.tab-ic svg { width: 20px; height: 20px; display: block; }
+/* v0.37: Sparks-icoon: kleurverloop + zacht twinkelende sterretjes */
+.tab-ic.spark svg { overflow: visible; transition: filter .25s; }
+.tab:hover .tab-ic.spark svg, .tab.active .tab-ic.spark svg { filter: drop-shadow(0 0 5px rgba(139, 108, 255, .85)); }
+.tab-ic.spark .spk-a, .tab-ic.spark .spk-b, .tab-ic.spark .spk-c { transform-box: fill-box; transform-origin: center; animation: spkTwinkle 2.8s ease-in-out infinite; }
+.tab-ic.spark .spk-b { animation-delay: -.9s; animation-duration: 2.2s; }
+.tab-ic.spark .spk-c { animation-delay: -1.7s; animation-duration: 3.1s; }
+@keyframes spkTwinkle { 0%, 100% { transform: scale(1) rotate(0); opacity: 1; } 50% { transform: scale(.7) rotate(18deg); opacity: .75; } }
+@media (prefers-reduced-motion: reduce) { .tab-ic.spark .spk-a, .tab-ic.spark .spk-b, .tab-ic.spark .spk-c { animation: none; } }
 .tab.active::after, .tab.active::before {
   content: ""; position: absolute; left: 14px; right: 14px; bottom: 0;
   height: 3px; border-radius: 3px;
@@ -865,6 +876,14 @@ button, a, summary, label, select { touch-action: manipulation; }
   .tab.active::after, .tab.active::before { top: 0; bottom: auto; left: 18%; right: 18%; }
   .tab.active::before { top: -4px; }
   .tab .unread, .tab .badge { margin-left: 5px; min-width: 18px; height: 18px; font-size: 11px; padding: 0 5px; }
+
+  /* v0.37: alleen icoontjes; het tabblad waar je op zit klapt uit met de tekst */
+  .tab { display: flex; align-items: center; justify-content: center; gap: 0; }
+  .tab.active { flex-grow: 2.4; }
+  .tab-ic svg { width: 22px; height: 22px; }
+  .tab-t { max-width: 0; opacity: 0; overflow: hidden; margin-left: 0; transition: max-width .3s ease, opacity .2s ease, margin-left .3s ease; }
+  .tab.active .tab-t { max-width: 90px; opacity: 1; margin-left: 6px; }
+  .tab .unread, .tab .badge { position: absolute; top: 3px; right: 3px; margin: 0; }
 
   /* gesprek open: schermvullend, zonder boven- en onderbalk */
   .app[data-chat="1"] { grid-template-rows: 0 minmax(0, 1fr) 0; row-gap: 0; }

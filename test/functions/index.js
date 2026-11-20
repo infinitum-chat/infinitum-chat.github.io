@@ -201,7 +201,7 @@ exports.cleanupDeletedUser = functionsV1.region('europe-west1').auth.user().onDe
   await safely('losse documenten', () => Promise.all([
     db.doc(`settings/${uid}`).delete(), db.doc(`presence/${uid}`).delete(), db.doc(`presence/${uid}_m`).delete(),
     db.doc(`presenceSettings/${uid}`).delete(), db.doc(`subscriptions/${uid}`).delete(), db.doc(`pushTests/${uid}`).delete(),
-    db.doc(`readState/${uid}`).delete(), db.doc(`liveness/${uid}`).delete(),
+    db.doc(`readState/${uid}`).delete(), db.doc(`liveness/${uid}`).delete(), db.doc(`sparks/${uid}`).delete(),
     db.recursiveDelete(db.collection(`sessions/${uid}/devices`))
   ]));
   await safely('pushtokens', () => deleteQuery(db.collection('pushTokens').where('uid', '==', uid)));

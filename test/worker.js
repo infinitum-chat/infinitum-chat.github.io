@@ -742,7 +742,7 @@ const relPath = (env, name) => name.slice(`projects/${pid(env)}/databases/(defau
 const pathOk = (p) => /^[A-Za-z0-9_\-]+(\/[A-Za-z0-9_\-]+)*$/.test(p) && p.split('/').length <= 6;
 // verzamelingen waar de beheerder iets aan mag verwijderen (niet: legal, features, config, badges-inhoud)
 const DELETABLE = new Set(['users', 'usernames', 'settings', 'presence', 'presenceSettings', 'liveness', 'readState', 'pushTokens', 'pushTests', 'notifications',
-  'subscriptions', 'friendships', 'chats', 'snaps', 'streaks', 'streakUsers', 'blocks', 'reports', 'moderation', 'modLog', 'spamLocks', 'spamLog', 'calls', 'servers', 'sessions', 'badges']);
+  'subscriptions', 'friendships', 'chats', 'snaps', 'streaks', 'streakUsers', 'blocks', 'reports', 'moderation', 'modLog', 'spamLocks', 'spamLog', 'calls', 'servers', 'sessions', 'badges', 'sparks']);
 // onderliggende verzamelingen per soort document
 const SUBS = { servers: ['channels', 'messages', 'typing', 'reads'], channels: ['messages', 'typing', 'reads', 'voice', 'sigs'], chats: ['messages', 'typing', 'reads'], sessions: ['devices'], reports: ['notes'] };
 const EXISTS = new Set(['servers', 'channels', 'reports']);   // documenten die zelf echt bestaan (chats/<id> en sessions/<uid> zijn alleen een pad)
@@ -1011,7 +1011,7 @@ async function adminPlan(env, B, uid) {
   // overig
   add('misc', 'Oproepen als beller', { kind: 'query', coll: 'calls', field: 'caller', value: uid });
   add('misc', 'Oproepen als gebelde', { kind: 'query', coll: 'calls', field: 'callee', value: uid });
-  add('misc', 'Aanwezigheid en gelezen-status', { kind: 'docs', paths: ['presence/' + uid, 'presence/' + uid + '_m', 'presenceSettings/' + uid, 'liveness/' + uid, 'readState/' + uid, 'pushTests/' + uid] });
+  add('misc', 'Aanwezigheid en gelezen-status', { kind: 'docs', paths: ['presence/' + uid, 'presence/' + uid + '_m', 'presenceSettings/' + uid, 'liveness/' + uid, 'readState/' + uid, 'pushTests/' + uid, 'sparks/' + uid] });
   if (env.MEDIA) add('misc', 'Foto’s op de Worker (R2)', { kind: 'r2' });
 
   // profiel (als laatste: zo blijft het account vindbaar als er iets misgaat)
@@ -1090,7 +1090,7 @@ async function adminExternal(env, B) {
 /* ---- opruimacties ---- */
 const ORPHAN_COLLS = [   // [verzameling, label, hoe vind je de eigenaar (uid)]
   ['users', 'Profielen', (id) => id], ['usernames', 'Gebruikersnamen', (id, d) => d.uid], ['settings', 'Instellingen', (id) => id], ['presence', 'Aanwezigheid', (id) => id.replace(/_m$/, '')],
-  ['presenceSettings', 'Aanwezigheidsinstellingen', (id) => id], ['liveness', 'Levenstekens', (id) => id], ['readState', 'Gelezen-status', (id) => id],
+  ['presenceSettings', 'Aanwezigheidsinstellingen', (id) => id], ['liveness', 'Levenstekens', (id) => id], ['readState', 'Gelezen-status', (id) => id], ['sparks', 'Sparks', (id) => id],
   ['pushTokens', 'Pushtokens', (id, d) => d.uid], ['notifications', 'Meldingen', (id, d) => d.uid]
 ];
 async function adminMaint(env, B, b) {

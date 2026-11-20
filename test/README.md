@@ -434,3 +434,11 @@ Bellen werkt dan alleen als beide kanten direct verbinding kunnen maken, en ande
 4. Heb je een R2-bucket `MEDIA`? Dan worden de foto's van het account daar ook gewist.
 
 Goed om te weten: tellen kost leesacties (1 per 1000 documenten); op het gratis Cloudflare-plan gebeurt alles in kleine stukjes, dus een account met veel berichten duurt gewoon even.
+
+
+## Sparks, stap 1: fundament (v0.37)
+Cosmetische valuta (zoals Orbs bij Discord), zonder functievoordeel. In deze stap alleen het fundament:
+- **Tabbalk**: nieuw tabblad **Sparks** (met eigen icoon). Op de pc staat overal icoon + tekst; op de telefoon alleen icoontjes en het tabblad waar je op zit klapt uit met de tekst.
+- **Zijbalk** bij Sparks: Quests, Shop, Leaderboard, Inventory (voorlopig lege pagina's met een titel).
+- **Opslag**: Firestore `sparks/<uid>` = `{ sparks_balance (begint op 0, nooit onder 0), quests_completed (teller), last_online_at }`. Het document wordt bij het inloggen aangemaakt; `last_online_at` wordt hooguit elke 10 min en bij uitloggen bijgewerkt.
+- **Eenmalig**: publiceer de nieuwe `firestore.rules` (`firebase deploy --only firestore:rules`). Wil je ook dat het account wissen de Sparks meeneemt: `firebase deploy --only functions` en plak de nieuwe `worker.js` in Cloudflare. De app werkt ook zonder; Sparks-opslag werkt pas na de regels.

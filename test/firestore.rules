@@ -761,6 +761,24 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---------- Sparks (v0.37): cosmetische valuta, per gebruiker (id = uid) ----------
+    // sparks_balance (geheel getal, nooit onder 0), quests_completed (teller), last_online_at.
+    // Ingelogde gebruikers mogen het lezen (voor de ranglijst). Jij maakt je eigen document aan met 0 / 0 en mag daarna ALLEEN
+    // last_online_at bijwerken: saldo en quests kun je dus niet zelf aanpassen (dat komt in latere stappen via admin / server).
+    match /sparks/{uid} {
+      allow read: if signedIn();
+      allow create: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['sparks_balance', 'quests_completed', 'last_online_at'])
+        && request.resource.data.sparks_balance is int && request.resource.data.sparks_balance == 0
+        && request.resource.data.quests_completed is int && request.resource.data.quests_completed == 0
+        && request.resource.data.last_online_at == request.time;
+      allow update: if isSelf(uid)
+        && changed(['last_online_at'])
+        && request.resource.data.sparks_balance >= 0
+        && request.resource.data.last_online_at == request.time;
+      allow delete: if isSelf(uid);
+    }
+
     // ---------- badges (definities + wie ze heeft; alleen te wijzigen via de Firebase Console) ----------
     match /badges/{badgeId} {
       allow read: if signedIn();

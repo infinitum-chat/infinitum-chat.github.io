@@ -40,14 +40,14 @@ const COLLS = {
   readState: 'Gelezen-status', pushTokens: 'Pushtokens', pushTests: 'Testmeldingen', notifications: 'Meldingen', subscriptions: 'Abonnementen', friendships: 'Vriendschappen',
   snaps: 'Streakrs', streaks: 'Streaks', streakUsers: 'Streak-herstellers', blocks: 'Blokkades', reports: 'Rapporten', moderation: 'Moderatiestand',
   modLog: 'Moderatielogboek', spamLocks: 'Spamblokkades', spamLog: 'Spam-logboek', calls: 'Oproepen', servers: 'Servers', badges: 'Badges', features: 'Functietabel',
-  legal: 'Voorwaarden', config: 'Configuratie',
+  legal: 'Voorwaarden', config: 'Configuratie', sparks: 'Sparks',
   '~messages': 'Berichten (DM’s + servers)', '~channels': 'Kanalen', '~devices': 'Apparaten', '~typing': 'Typ-indicators', '~reads': 'Leesmarkeringen', '~voice': 'Spraakdeelnemers',
   '~sigs': 'Belsignalen', '~notes': 'Rapport-notities'
 };
 // gemiddelde grootte van een document in bytes (schatting, inclusief indexen; zonder grote afbeeldingen die in Firestore staan)
 const AVG = { users: 1800, usernames: 130, settings: 900, presence: 220, presenceSettings: 220, liveness: 120, readState: 320, pushTokens: 650, pushTests: 120, notifications: 450, subscriptions: 750,
   friendships: 280, snaps: 1500, streaks: 320, streakUsers: 90, blocks: 220, reports: 950, moderation: 320, modLog: 380, spamLocks: 220, spamLog: 950, calls: 3500, servers: 2300,
-  badges: 420, features: 950, legal: 9000, config: 320, '~messages': 400, '~channels': 650, '~devices': 380, '~typing': 130, '~reads': 160, '~voice': 260, '~sigs': 3500, '~notes': 380 };
+  badges: 420, sparks: 130, features: 950, legal: 9000, config: 320, '~messages': 400, '~channels': 650, '~devices': 380, '~typing': 130, '~reads': 160, '~voice': 260, '~sigs': 3500, '~notes': 380 };
 
 const nf = new Intl.NumberFormat('nl-NL');
 const fmtN = (n) => (n == null ? '–' : nf.format(Math.round(n)));

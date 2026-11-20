@@ -99,6 +99,10 @@ function h(tag, props, ...kids) {
 
 const svg = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 const I = {
+  quests: svg('<path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1.2 1.2L7 5M3.5 12l1.2 1.2L7 11M3.5 18l1.2 1.2L7 17"/>'),
+  shop: svg('<path d="M5 8h14l-1 12H6L5 8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>'),
+  leaderboard: svg('<path d="M8 4h8v5a4 4 0 0 1-8 0V4z"/><path d="M8 6H4v1a4 4 0 0 0 4 4M16 6h4v1a4 4 0 0 1-4 4M12 13v4M8 21h8M10 17h4"/>'),
+  inventory: svg('<path d="M3 7.5L12 3l9 4.5v9L12 21l-9-4.5v-9z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9"/>'),
   shield: svg('<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>'),
   calendar: svg('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'),
   star: svg('<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>'),
@@ -423,6 +427,7 @@ onAuthStateChanged(auth, async (user) => {
   S.started = true;
   startListeners();
   LFM.start();
+  sparksStart();
   $('#auth').hidden = true; $('#app').hidden = false;
   setTab('dms');
   pushRefresh();
@@ -573,6 +578,7 @@ function teardown() {
   Object.values(S.metaUnsub).forEach(u => u());
   Object.assign(S, { me: null, profile: null, friendships: [], meta: {}, metaUnsub: {}, servers: [], activeDm: null, activeServer: null, activeChannel: null, channels: {}, channelsFor: null, officialTried: false, started: false, tab: 'dms', metaSeen: {}, reqSeen: null, settingsSeeded: false });
   for (const k of Object.keys(PROF)) delete PROF[k];
+  SPK.last = 0;
   applyTier();   // favicon terug naar gewoon Infinitum
   $('#main').replaceChildren(); $('#sideList').replaceChildren(); $('#sideFoot').replaceChildren();
 }
@@ -581,7 +587,7 @@ function teardown() {
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('.tab'); if (b) setTab(b.dataset.tab); });
 
 // instellingen / admin / meldingen: op de telefoon eerst de zijbalk (categorieën) tonen, pas na een tik de inhoud
-function setTab(t) { if (t === 'requests') t = 'friends'; S.tab = t; renderTabs(); renderSidebar(true); showMain(['settings', 'admin', 'inbox'].includes(t) ? 'list' : undefined); }
+function setTab(t) { if (t === 'requests') t = 'friends'; S.tab = t; renderTabs(); renderSidebar(true); showMain(['settings', 'admin', 'inbox', 'sparks'].includes(t) ? 'list' : undefined); }
 
 function renderTabs() {
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
@@ -627,8 +633,8 @@ function renderSidebar(animate = false) {
     swapAnim(list, foot);
     return;
   }
-  if (S.tab === 'admin' || S.tab === 'inbox') {
-    $('#sideTitle').textContent = S.tab === 'admin' ? 'Admin' : 'Meldingen';
+  if (S.tab === 'admin' || S.tab === 'inbox' || S.tab === 'sparks') {
+    $('#sideTitle').textContent = S.tab === 'admin' ? 'Admin' : S.tab === 'sparks' ? 'Sparks' : 'Meldingen';
     const first = list.dataset.mode !== S.tab;
     list.dataset.mode = S.tab; sideSig = '';
     buildPageNav(list, foot);
@@ -716,6 +722,7 @@ function showMain(pageView) {
   if (S.tab === 'settings') { renderSettings(); setView(keep()); return; }
   if (S.tab === 'admin') { renderAdmin(); setView(keep()); return; }
   if (S.tab === 'inbox') { renderInbox(); setView(keep()); return; }
+  if (S.tab === 'sparks') { renderSparks(); setView(keep()); return; }
   const type = S.tab === 'dms' ? 'dm' : 'server';
   if (type === 'server' && !S.activeServer && S.servers.length && matchMedia('(min-width: 801px)').matches) {   // desktop: meteen de officiële (of eerste) server openen
     S.activeServer = (S.servers.find(x => x.official) || [...S.servers].sort((a, b) => a.name.localeCompare(b.name))[0]).id; renderSidebar();
@@ -2907,6 +2914,7 @@ function liveBeat(force = false) {
   LIVE.last = now;
   const away = !IS_MOBILE && userIdle();
   setDoc(doc(db, 'liveness', S.me.uid), IS_MOBILE ? { phAt: serverTimestamp(), phVis: isVisible() } : { pcAt: serverTimestamp(), pcAway: away }, { merge: true }).catch(() => {});
+  if (!away) sparksSeen();
   if (!IS_MOBILE && away && !LIVE.away) {   // net van je pc af: één melding op je telefoon met wat er nog openstaat
     LIVE.away = true;
     const n = unreadTotal();
@@ -2931,6 +2939,7 @@ async function presenceGoOffline() {
   stopPresence();
   try { await setDoc(doc(db, 'presence', uid + (IS_MOBILE ? '_m' : '')), { state: 'offline', lastSeen: serverTimestamp() }); } catch {}
   try { await setDoc(doc(db, 'liveness', uid), IS_MOBILE ? { phAt: serverTimestamp(), phVis: false } : { pcAt: serverTimestamp(), pcAway: true }, { merge: true }); } catch {}
+  try { await updateDoc(doc(db, 'sparks', uid), { last_online_at: serverTimestamp() }); } catch {}
 }
 
 /* --- eigen status kiezen (klik op je avatar linksboven) --- */
@@ -4566,7 +4575,7 @@ function buildPlans() {
    Firestore -> notifications -> <id> { uid (ontvanger), type, title, text, by, byName, createdAt, read }
    Moderators maken ze aan bij een besluit of een profielwijziging; bij een aanvraag maakt de aanvrager er zelf een. */
 const INBOX = { list: [], ready: false };
-const NAV = { admin: 'overview', inbox: 'all' };
+const NAV = { admin: 'overview', inbox: 'all', sparks: 'quests' };
 const PAGES = ['settings', 'admin', 'inbox'];
 const unreadInbox = () => INBOX.list.filter(n => !n.read).length;
 const NT_ICON = { sub_request: I.star, sub_progress: I.check, sub_approved: I.check, sub_rejected: I.x, sub_changed: I.star, profile_reset: I.user, message: I.bell, mention: I.at,
@@ -4577,6 +4586,13 @@ const NT_FILTERS = [
   { id: 'sub', title: 'Abonnement', d: 'Aanvragen en besluiten', ic: I.star },
   { id: 'profile', title: 'Profiel', d: 'Wijzigingen door een moderator', ic: I.user },
   { id: 'mod', title: 'Moderatie', d: 'Waarschuwingen, time-outs, bans en meldingen', ic: I.shield }
+];
+// v0.37 Sparks: menu in de zijbalk (voorlopig lege pagina's met een titel)
+const SPARK_SECS = [
+  { id: 'quests', title: 'Quests', d: 'Opdrachten om Sparks te verdienen', ic: I.quests, sub: '' },
+  { id: 'shop', title: 'Shop', d: 'Besteed je Sparks aan cosmetische items', ic: I.shop, sub: '' },
+  { id: 'leaderboard', title: 'Leaderboard', d: 'De top van Infinitum', ic: I.leaderboard, sub: '' },
+  { id: 'inventory', title: 'Inventory', d: 'Jouw verzamelde items', ic: I.inventory, sub: '' }
 ];
 const ntMatch = (n, f) => f === 'all' || (f === 'unread' && !n.read) || (f === 'sub' && String(n.type).startsWith('sub_')) || (f === 'profile' && n.type === 'profile_reset') || (f === 'mod' && (String(n.type).startsWith('mod_') || n.type === 'report_result'));
 
@@ -4962,6 +4978,7 @@ function togglePage(tab) {
 function buildPageNav(list, foot) {
   const admin = S.tab === 'admin';
   const items = admin ? ADM_SECS.map(x => ({ ...x, badge: x.id === 'requests' ? needsMe().length : x.id === 'reports' ? RPT.open.length : 0 }))
+    : S.tab === 'sparks' ? SPARK_SECS.map(x => ({ ...x, badge: 0 }))
     : NT_FILTERS.map(x => ({ ...x, badge: x.id === 'unread' ? unreadInbox() : 0 }));
   list.replaceChildren(...items.map(x => h('button', {
     class: 'item set-nav' + (NAV[S.tab] === x.id ? ' active' : ''), type: 'button',
@@ -5028,6 +5045,35 @@ function renderInbox() {
     h('div', { class: 'nt-bar', id: 'ntBar' }),
     h('div', { id: 'ntList' })));
   inboxRender();
+}
+
+function renderSparks() {
+  const sec = SPARK_SECS.find(x => x.id === NAV.sparks) || SPARK_SECS[0];
+  $('#main').replaceChildren(h('div', { class: 'pane sparkspg' }, pageHead(sec.title, sec.sub)));
+}
+
+/* =====================  Sparks (v0.37, stap 1: fundament)  =====================
+   Cosmetische valuta (zoals Orbs bij Discord): geen enkel functievoordeel.
+   Firestore -> sparks -> <uid> { sparks_balance (geheel getal, nooit onder 0), quests_completed (teller), last_online_at }
+   Je maakt je eigen document aan met 0 / 0. Saldo en quests kun je zelf niet wijzigen (firestore.rules), alleen last_online_at. */
+const SPK = { last: 0 };
+const SPK_EVERY = 10 * 60000;   // last_online_at hooguit elke 10 min bijwerken
+const sparksBalance = (d) => Math.max(0, Math.floor(Number(d?.sparks_balance) || 0));   // nooit onder 0
+async function sparksStart() {
+  if (!S.me) return;
+  const ref = doc(db, 'sparks', S.me.uid);
+  try {
+    SPK.last = Date.now();
+    if ((await getDoc(ref)).exists()) await updateDoc(ref, { last_online_at: serverTimestamp() });
+    else await setDoc(ref, { sparks_balance: 0, quests_completed: 0, last_online_at: serverTimestamp() });
+  } catch (e) { console.error('Sparks:', e); }
+}
+function sparksSeen() {
+  if (!S.me) return;
+  const now = Date.now();
+  if (now - SPK.last < SPK_EVERY) return;
+  SPK.last = now;
+  updateDoc(doc(db, 'sparks', S.me.uid), { last_online_at: serverTimestamp() }).catch(() => {});
 }
 
 /* =====================  account, apparaten, vergeten, voorwaarden (v0.10)  =====================
