@@ -418,3 +418,19 @@ Bellen werkt dan alleen als beide kanten direct verbinding kunnen maken, en ande
 - Ontkoppel je Last.fm of zet je tonen uit, dan blijft de badge met je bestaande totalen staan (er komt alleen niets meer bij). Willen jullie dat hij dan verdwijnt, haal dan het veld `music` weg in Firestore.
 - De handleiding in de app (stap 6) noemt de nieuwe schakelaar en de badge.
 
+
+## Wijzigingen in v0.37: Admin-pagina (Overzicht, Voorwaarden, Opslag, Account wissen)
+**Nieuw bestand `js/admin-tools.js`** en een nieuw onderdeel `POST /admin` in `worker.js`. **Plak de nieuwe `worker.js` in Cloudflare** (Workers → jouw Worker → Edit code → Deploy), anders werken Opslag en Account wissen niet.
+
+- **Overzicht**: tegels (gebruikers, abonnees, open aanvragen en rapporten), snelkoppelingen en de nieuwste gebruikers.
+- **Voorwaarden**: nieuwe editor met lijst, schrijven/voorbeeld/naast elkaar, teller, Ctrl+S en "niet opgeslagen"-melding. De teksten die gebruikers zien zijn ook mooier opgemaakt (koppen met streepje, datum als label).
+- **Account wissen** (Mensen → ⋮ → *Account verwijderen…*): eerst een overzicht van **alles** wat bij het account hoort (profiel, vriendschappen en DM-berichten, eigen servers, berichten in andere servers, streakrs, meldingen, moderatie, aanwezigheid, foto's, inlogaccount) met aantallen. Daarna typ je de gebruikersnaam om te bevestigen; er is een voortgangsbalk, en na afloop telt hij alles nog eens om te bewijzen dat er niets meer staat. Het inlogaccount zelf wordt ook verwijderd. Moderators en jezelf kun je hier niet wissen. De officiële server blijft altijd staan.
+- **Opslag**: Firebase-gebruik van vandaag (lezen, schrijven, verwijderen), aantal documenten per onderdeel met geschatte grootte, Cloudinary-gebruik, opruimacties (oude meldingen, bekeken streakrs, oud spam-logboek, weesdocumenten van accounts die niet meer bestaan), inlogaccounts zonder profiel en snelle links naar de consoles.
+
+### Eenmalig instellen (alles blijft werken als je het overslaat, je ziet dan een uitleg in het scherm)
+1. **Worker vervangen** door de nieuwe `worker.js`.
+2. **Firebase-gebruik tonen**: Google Cloud Console → IAM → het account `firebase-adminsdk-…` → *Rol toevoegen* → **Monitoring Viewer**.
+3. **Foto's bij Cloudinary meewissen en gebruik tonen**: Cloudflare → Worker → Settings → Variables: `CLOUDINARY_CLOUD` (Text, bijv. `qbzpu0fs`), `CLOUDINARY_API_KEY` (Text) en `CLOUDINARY_API_SECRET` (**Secret**). Je vindt ze in Cloudinary → Settings → API Keys. Zonder deze sleutels blijven foto's bij Cloudinary staan; in Firestore wordt alles wel verwijderd.
+4. Heb je een R2-bucket `MEDIA`? Dan worden de foto's van het account daar ook gewist.
+
+Goed om te weten: tellen kost leesacties (1 per 1000 documenten); op het gratis Cloudflare-plan gebeurt alles in kleine stukjes, dus een account met veel berichten duurt gewoon even.

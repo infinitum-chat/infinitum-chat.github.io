@@ -1,4 +1,4 @@
-import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=0.36';
+import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=0.37';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -10,16 +10,17 @@ import {
   limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp, runTransaction
 } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
 
-import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=0.36';
-import { createStreakr } from './streakr.js?v=0.36';
-import { createLastfm } from './lastfm.js?v=0.36';
-import './fs-idle.js?v=0.36';
-import { createCalls } from './call.js?v=0.36';
-import { createVoice, VIC } from './voice.js?v=0.36';
-import { buildVoiceSettings } from './audio-settings.js?v=0.36';
-import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=0.36';
+import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=0.37';
+import { createStreakr } from './streakr.js?v=0.37';
+import { createAdminTools, ADM_IC } from './admin-tools.js?v=0.37';
+import { createLastfm } from './lastfm.js?v=0.37';
+import './fs-idle.js?v=0.37';
+import { createCalls } from './call.js?v=0.37';
+import { createVoice, VIC } from './voice.js?v=0.37';
+import { buildVoiceSettings } from './audio-settings.js?v=0.37';
+import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=0.37';
 
-const APP_VERSION = 'v0.36';
+const APP_VERSION = 'v0.37';
 // telefoon of tablet? Niet alleen op de aanwijzer vertrouwen: sommige Samsung-telefoons (en geïnstalleerde apps) melden hover/fine pointer
 const IS_MOBILE = (() => {
   const ua = navigator.userAgent || '';
@@ -4501,7 +4502,10 @@ function subscriberRow(u) {
       e.stopPropagation();
       const r = moreBtn.getBoundingClientRect();
       const items = [{ icon: I.user, label: 'Profiel resetten', run: () => openResetDialog(u) }];
-      if (!(u.uid === S.me.uid || isModUid(u.uid))) items.push({ icon: I.shield, label: 'Moderatie', run: () => openModDialog(u) });
+      if (!(u.uid === S.me.uid || isModUid(u.uid))) {
+        items.push({ icon: I.shield, label: 'Moderatie', run: () => openModDialog(u) });
+        items.push({ icon: I.trash, label: 'Account verwijderen…', danger: true, run: () => ADMT.openDeleteUser(u) });
+      }
       openCtx(r.right - 200, r.bottom + 4, items);
     } });
   return h('div', { class: 'row plan-req sub-row' },
@@ -4562,7 +4566,7 @@ function buildPlans() {
    Firestore -> notifications -> <id> { uid (ontvanger), type, title, text, by, byName, createdAt, read }
    Moderators maken ze aan bij een besluit of een profielwijziging; bij een aanvraag maakt de aanvrager er zelf een. */
 const INBOX = { list: [], ready: false };
-const NAV = { admin: 'requests', inbox: 'all' };
+const NAV = { admin: 'overview', inbox: 'all' };
 const PAGES = ['settings', 'admin', 'inbox'];
 const unreadInbox = () => INBOX.list.filter(n => !n.read).length;
 const NT_ICON = { sub_request: I.star, sub_progress: I.check, sub_approved: I.check, sub_rejected: I.x, sub_changed: I.star, profile_reset: I.user, message: I.bell, mention: I.at,
@@ -5217,41 +5221,7 @@ async function deleteAccount(pass) {
   toast('Je account is verwijderd.');
 }
 
-/* --- admin: voorwaarden, privacybeleid en huisregels bewerken --- */
-function buildLegalEditor() {
-  let cur = LEGAL_DOCS[0].id;
-  const tabs = h('div', { class: 'seg legal-tabs' }), area = h('textarea', { class: 'inp legal-edit', maxlength: 30000, spellcheck: true });
-  const msg = h('p', { class: 'acc-note' }), save = h('button', { class: 'glow', type: 'button', text: 'Opslaan' });
-  const dflt = h('button', { class: 'ghost', type: 'button', text: 'Standaardtekst terugzetten' });
-  const prev = h('button', { class: 'ghost', type: 'button', text: 'Voorbeeld' });
-  const load = async (id) => {
-    cur = id; msg.className = 'acc-note'; msg.textContent = '';
-    [...tabs.children].forEach(b => b.classList.toggle('active', b.dataset.id === id));
-    area.value = 'Laden…'; area.disabled = true;
-    const d = await loadLegal(id, true);
-    area.value = d.text; area.disabled = false;
-    msg.textContent = d.custom ? 'Dit is de opgeslagen tekst.' : 'Er is nog niets opgeslagen: dit is de standaardtekst. Klik op Opslaan om hem te publiceren.';
-  };
-  LEGAL_DOCS.forEach(d => tabs.append(h('button', { type: 'button', 'data-id': d.id, text: d.title, onclick: () => load(d.id) })));
-  dflt.onclick = () => { area.value = LEGAL_DEFAULT[cur]; msg.className = 'acc-note'; msg.textContent = 'Standaardtekst ingevuld. Klik op Opslaan om hem te publiceren.'; };
-  prev.onclick = () => openDialog(h('div', { class: 'legal-body' }, renderLegalText(area.value)), h('div', { class: 'dlg-actions' }, h('button', { class: 'ghost', type: 'button', onclick: closeDialog, text: 'Sluiten' })));
-  save.onclick = async () => {
-    const t = new Date(), today = `${t.getDate()}-${t.getMonth() + 1}-${t.getFullYear()}`;
-    let text = area.value.trim();
-    if (text.length < 20) { msg.className = 'err'; msg.textContent = 'De tekst is te kort.'; return; }
-    text = /^laatst bijgewerkt:.*$/im.test(text) ? text.replace(/^laatst bijgewerkt:.*$/im, 'Laatst bijgewerkt: ' + today) : text;
-    save.disabled = true;
-    try {
-      await setDoc(doc(db, 'legal', cur), { text, updatedAt: serverTimestamp(), by: S.me.uid });
-      area.value = text; await loadLegal(cur, true);
-      msg.className = 'acc-ok'; msg.textContent = 'Opgeslagen. Gebruikers zien de nieuwe tekst meteen.';
-    } catch (e) { msg.className = 'err'; msg.textContent = fbErr(e); }
-    finally { save.disabled = false; }
-  };
-  const box = h('div', { class: 'acc-form' }, tabs, area, msg, h('div', { class: 'dlg-actions' }, dflt, prev, save));
-  load(cur);
-  return box;
-}
+/* --- admin: voorwaarden bewerken zit in js/admin-tools.js (ADMT.buildLegalEditor) --- */
 
 /* =====================  blokkeren en melden (v0.18)  =====================
    blocks/<jouw uid>_<hun uid>  { blocker, blocked, blockedName, createdAt }   (alleen jij leest ze; de ander merkt niets)
@@ -5543,11 +5513,13 @@ function buildReportsPanel() {
 /* =====================  Admin-pagina (knop "Admin", alleen voor moderators)  =====================
    Zijbalk: Aanvragen (formulieren van upgrade.html beoordelen), Mensen (beheren + profiel resetten), Tabel (functies per versie). */
 const ADM_SECS = [
+  { id: 'overview', title: 'Overzicht', d: 'Alles in één oogopslag', ic: ADM_IC.dash, sub: 'Hoeveel mensen, wat er openstaat en waar je direct naartoe kunt.' },
   { id: 'requests', title: 'Aanvragen', d: 'Upgrade-aanvragen beoordelen', ic: I.star, sub: 'Formulieren van mensen die een abonnement willen. Keur ze goed of wijs ze af; de gebruiker krijgt een melding met jouw reactie.' },
-  { id: 'people', title: 'Mensen', d: 'User-ID’s, beheren en resetten', ic: I.user, sub: 'Alle Infinitum-gebruikers met hun user-ID: abonnement wijzigen, of een profiel en gebruikersnaam resetten.' },
+  { id: 'people', title: 'Mensen', d: 'User-ID’s, beheren en resetten', ic: I.user, sub: 'Alle Infinitum-gebruikers met hun user-ID: abonnement wijzigen, profiel resetten of een account met alle data wissen (⋮).' },
   { id: 'mod', title: 'Moderatie', d: 'Waarschuwingen, time-outs, bans en spam', ic: I.shield, sub: 'Waarschuw mensen anoniem bij verdacht gedrag. Gaat het daarna weer mis, dan volgt een tijdelijke time-out en daarna een ban. De gebruiker ziet de reden in zijn meldingen, maar nooit welke moderator het deed. Onderaan staat het logboek van de automatische spamdetectie.' },
   { id: 'reports', title: 'Rapporten', d: 'Gemelde berichten en gebruikers', ic: I.flag, sub: 'Meldingen van gebruikers over berichten en personen. Reageer onderling, zet erbij wat je ermee gaat doen, modereer de persoon (waarschuwing, time-out, ban) en rond de melding af. De melder krijgt dan een anonieme melding; de gemelde persoon ziet nooit wie meldde.' },
   { id: 'legal', title: 'Voorwaarden', d: 'Voorwaarden, privacy en huisregels', ic: I.lock, sub: 'Pas de teksten aan die gebruikers zien bij het inloggen en in de instellingen. De datum bovenaan wordt bij het opslaan automatisch bijgewerkt.' },
+  { id: 'storage', title: 'Opslag', d: 'Gebruik, opruimen en beheer', ic: ADM_IC.db, sub: 'Wat Firebase en Cloudinary gebruiken, wat er in de database staat, en opruimen met één klik. Accounts wis je bij Mensen.' },
   { id: 'streakr', title: 'Streakr', d: 'Kwaliteit en opslag van foto’s', ic: I.image, sub: 'Kies of streakrs van iedereen via Cloudinary (goede kwaliteit) of via Firestore (lage kwaliteit) worden verstuurd.' },
   { id: 'table', title: 'Tabel', d: 'Functies per versie', ic: I.check, sub: 'Welke functie bij welk abonnement hoort.' }
 ];
@@ -5691,6 +5663,8 @@ function renderAdmin() {
   const inField = () => body.contains(document.activeElement) && document.activeElement !== search && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   const render = () => {
     if (sec.id === 'table' || sec.id === 'legal' || sec.id === 'streakr') return;
+    if (sec.id === 'storage') { if (SUBS.ready) ADMT.paintStorage?.(); return; }
+    if (sec.id === 'overview') { ADMT.paintOverview(); return; }
     if (sec.id === 'mod') { MODV.paint?.(); return; }
     if (sec.id === 'reports') { RPT.paint?.(); return; }
     if (inField()) { dirty = true; return; }   // niet opnieuw tekenen terwijl een moderator typt
@@ -5702,7 +5676,9 @@ function renderAdmin() {
 
   if (sec.id === 'requests') body.append(reqBox);
   else if (sec.id === 'people') body.append(fbBar, search, count, list);
-  else if (sec.id === 'legal') body.append(buildLegalEditor());
+  else if (sec.id === 'legal') body.append(ADMT.buildLegalEditor());
+  else if (sec.id === 'overview') body.append(ADMT.buildOverview((id) => { NAV.admin = id; renderSidebar(); showMain('main'); }));
+  else if (sec.id === 'storage') body.append(ADMT.buildStorage());
   else if (sec.id === 'mod') body.append(buildModPanel());
   else if (sec.id === 'reports') body.append(buildReportsPanel());
   else if (sec.id === 'streakr') body.append(STK.buildAdmin());
@@ -5742,6 +5718,16 @@ $('#premiumBtn').addEventListener('click', openPlans);
 
 applyAppearance();
 setMode('login');
+
+/* =====================  Admin-schermen (v0.37)  ===================== */
+const ADMT = createAdminTools({
+  h, I, S, db, auth, toast, fbErr, avatar, fmtWhen, SUBS, RPT, needsMe,
+  modCount: () => creditUids().length,
+  LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, renderLegalText, doc, setDoc, serverTimestamp,
+  openDialog, closeDialog, dlg,
+  workerUrl: () => (PUSH_URL ? PUSH_URL.replace(/\/$/, '') : ''),
+  afterWipe: (uid) => { delete PROF[uid]; adminView?.render(); }
+});
 
 /* =====================  Bellen (v0.19)  ===================== */
 const VOICE = createVoice({

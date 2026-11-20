@@ -79,7 +79,7 @@ async function accessToken(env) {
   const head = b64u(enc.encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
   const claim = b64u(enc.encode(JSON.stringify({
     iss: key.client_email,
-    scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase.messaging',
+    scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/cloud-platform',
     aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600
   })));
   const pem = String(key.private_key || '').replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
@@ -486,6 +486,18 @@ const LFM_RE = /^[A-Za-z][A-Za-z0-9_-]{1,14}$/;
 const LFM_PLACEHOLDER = '2a96cbd8b46e442fc41c2b86b821562f';   // het standaard-sterretje van Last.fm: geen echte hoes
 const LFM_GRACE = 180;                                        // een nummer dat < 3 min geleden is gescrobbeld telt ook nog als "speelt nu" (sommige apps sturen geen "now playing")
 const LFM_ART_OK = /^https:\/\/(?:lastfm\.freetls\.fastly\.net|is\d-ssl\.mzstatic\.com|(?:e-)?cdns?-images\.dzcdn\.net)\//;   // Last.fm-hoes, of (als Last.fm er geen heeft) Deezer of Apple/iTunes
+const LFM_LONG = 0;                                           // 0 = uit: alleen "Scrobbling now" (en de korte LFM_GRACE) telt als speelt nu; zet een getal (seconden) om een gescrobbeld lang nummer toch nog te tonen
+const LFM_NODUR = 600;                                        // kent Last.fm de lengte niet: 10 min na het begin nog tonen
+const durCache = new Map();                                   // "artiest|titel" -> lengte in seconden (0 = onbekend)
+async function trackSecs(env, artist, title) {
+  const key = (artist + '|' + title).toLowerCase(), hit = durCache.get(key);
+  if (hit !== undefined) return hit;
+  const r = await fetchJson('https://ws.audioscrobbler.com/2.0/?method=track.getinfo&autocorrect=1&format=json&artist=' + encodeURIComponent(artist)
+    + '&track=' + encodeURIComponent(title) + '&api_key=' + encodeURIComponent(String(env.LASTFM_KEY).trim()));
+  const d = r.s === 200 && r.j && r.j.track ? Math.round(Number(r.j.track.duration) / 1000) || 0 : -1;
+  if (d >= 0) { if (durCache.size > 500) durCache.clear(); durCache.set(key, d); }   // bij een fout niet onthouden
+  return Math.max(d, 0);
+}
 const artCache = new Map();                                   // "artiest|titel" -> { exp, art }; hoezen veranderen niet, dus lang bewaren
 const lfmCache = new Map();                                   // naam -> { exp, data }; alleen in dit isolate (de Cache API werkt niet op *.workers.dev)
 const LFM_ERR = {
@@ -588,8 +600,13 @@ async function lfmNow(env, user) {
   if (t) {
     const now = t['@attr'] && String(t['@attr'].nowplaying) === 'true';
     const uts = Number(t.date && t.date.uts) || 0;
-    const fresh = !now && uts && (Date.now() / 1000 - uts) < LFM_GRACE;
     const title = clip(t.name, 120), artist = clip(t.artist && (t.artist['#text'] || t.artist.name), 120);
+    const age = uts ? Date.now() / 1000 - uts : Infinity;   // `uts` = wanneer het nummer BEGON; na het scrobbelen verdwijnt de "speelt nu"-vlag
+    let fresh = !now && uts && age < LFM_GRACE;
+    if (!now && uts && !fresh && age < LFM_LONG && title && artist) {   // lang nummer (of mix): al gescrobbeld maar nog niet afgelopen = speelt nog
+      const d = await trackSecs(env, artist, title);
+      fresh = d > 0 ? age < d + 90 : age < LFM_NODUR;
+    }
     if ((now || fresh) && title && artist) {
       let art = pickLfmImg(t.image), dbg = '';
       if (!art) { const f = await findArt(env, artist, title); art = f.art; dbg = f.dbg; }
@@ -659,13 +676,14 @@ async function putMusic(env, uid, ut, fields) {
 async function pollMusic(env, event) {
   const slot = Math.floor((event && event.scheduledTime ? event.scheduledTime : Date.now()) / 60000);
   if (slot % BG_EVERY_MIN !== 0) return 0;
-  if (!env.LASTFM_KEY) return 0;
+  if (!env.LASTFM_KEY) { console.log('[muziek] LASTFM_KEY ontbreekt in de Worker: er wordt niets gedaan'); return 0; }
   const q = await gFetch(env, `${FS}/projects/${pid(env)}/databases/(default)/documents:runQuery`, { method: 'POST', body: JSON.stringify({ structuredQuery: {
     from: [{ collectionId: 'settings' }],
     where: { fieldFilter: { field: { fieldPath: 'lastfm.bg' }, op: 'EQUAL', value: { booleanValue: true } } }, limit: 200 } }) });
   if (!q.ok) throw new Error('instellingen zoeken mislukt (' + q.status + '): ' + (await q.text()).slice(0, 200));
   const all = (await q.json()).filter(x => x.document).map(x => ({ uid: x.document.name.split('/').pop(), lfm: (fromFields(x.document.fields).lastfm) || {} }))
     .filter(x => x.lfm.bg === true && x.lfm.show !== false && LFM_RE.test(String(x.lfm.user || ''))).sort((a, b) => a.uid < b.uid ? -1 : 1);
+  console.log('[muziek] gevonden met schakelaar aan: ' + all.length);
   if (!all.length) return 0;
   const run = Math.floor(slot / BG_EVERY_MIN), take = Math.min(BG_MAX, all.length), start = (run * take) % all.length;
   const batch = Array.from({ length: take }, (_, i) => all[(start + i) % all.length]);
@@ -673,15 +691,17 @@ async function pollMusic(env, event) {
   const now = Date.now(); let done = 0;
   for (const { uid, lfm } of batch) {
     try {
-      const u = docs['users/' + uid]; if (!u) continue;
+      const u = docs['users/' + uid]; if (!u) { console.log('[muziek] ' + uid + ': profiel niet gevonden'); continue; }
       const ps = docs['presenceSettings/' + uid] && docs['presenceSettings/' + uid].d, act = u.d.activity && u.d.activity.k === 'music' ? u.d.activity : null;
       const invisible = !!(ps && ps.mode === 'invisible' && (!ps.until || Number(ps.until) > now));
       const stat = u.d.music;
+      console.log('[muziek] ' + uid + ' onzichtbaar=' + invisible + ' huidig=' + (act ? act.t + ' (' + Math.round((now - (Number(act.at) || 0)) / 1000) + ' s oud)' : 'geen'));
       if (invisible) {   // Onzichtbaar: niets tonen
         if (act) { await putMusic(env, uid, u.ut, stat ? { music: bumpMusic(stat, '', now, true) } : {}); done++; }
         continue;
       }
       const res = await lfmNow(env, lfm.user);
+      console.log('[muziek] ' + uid + ' Last.fm: ' + (res.data.ok ? (res.data.playing ? 'speelt ' + res.data.title : 'speelt niets') : 'fout ' + res.data.code));
       if (!res.data.ok) {   // privé, bestaat niet, sleutel of Last.fm even weg: bij een blijvende fout de oude status laten verlopen
         if (act && ['nouser', 'private', 'badname'].includes(res.data.code)) { await putMusic(env, uid, u.ut, stat ? { music: bumpMusic(stat, '', now, true) } : {}); done++; }
         continue;
@@ -691,13 +711,484 @@ async function pollMusic(env, event) {
         const same = act && act.t === t && act.a === a && String(act.i || '') === i && act.bg === true;
         if (same && now - (Number(act.at) || 0) < BG_BEAT) continue;   // niets nieuws (de app zelf was net al bezig)
         const na = { k: 'music', t, a, at: now, bg: true }; if (i) na.i = i;
-        if (await putMusic(env, uid, u.ut, { activity: na, music: bumpMusic(stat, t + '|' + a, now, false) })) done++;
+        const wrote = await putMusic(env, uid, u.ut, { activity: na, music: bumpMusic(stat, t + '|' + a, now, false) });
+        console.log('[muziek] ' + uid + ' schrijven ' + (wrote ? 'gelukt' : 'overgeslagen (document net eerder gewijzigd)'));
+        if (wrote) done++;
       } else if (act && now - (Number(act.at) || 0) >= BG_CLEAR) {
         if (await putMusic(env, uid, u.ut, stat ? { music: bumpMusic(stat, '', now, true) } : {})) done++;
       }
     } catch (e) { console.error('Muziek op de achtergrond mislukt voor ' + uid, e); }
   }
   return done;
+}
+
+/* ---------- beheer (v0.37): POST /admin ----------
+   Alleen voor moderators (badges/moderator of badges/admin). De app (js/admin-tools.js) gebruikt dit voor:
+     plan      alles opzoeken wat bij een account hoort -> lijst met taken
+     run       taken tellen (mode 'count') of uitvoeren (mode 'delete'), in kleine stukjes
+     usage     aantal documenten per verzameling
+     external  inlogaccounts, Firestore-gebruik van vandaag (Cloud Monitoring) en Cloudinary-gebruik
+     maint     opruimacties (oude meldingen, bekeken streakrs, spam-logboek, weesdocumenten)
+   Het gratis plan van Cloudflare staat maar 50 externe aanvragen per Worker-aanroep toe. Daarom heeft elke aanroep een budget
+   (SUB_BUDGET); is dat op, dan geeft een taak "skipped" of "more" terug en vraagt de app het gewoon nog een keer. Niets hoeft dus
+   in één keer te passen, ook niet bij een account met duizenden berichten.
+   Extra instellingen (alle optioneel, zie README v0.37):
+     CLOUDINARY_CLOUD (Text), CLOUDINARY_API_KEY (Text), CLOUDINARY_API_SECRET (Secret): foto's bij Cloudinary meewissen en gebruik tonen
+     Rol "Monitoring Viewer" voor de servicesleutel: Firestore-gebruik van vandaag tonen */
+const SUB_BUDGET = 40;
+const LIM = 300;                        // documenten per pagina/commit
+const ROOT = (env) => `${FS}/projects/${pid(env)}/databases/(default)/documents`;
+const relPath = (env, name) => name.slice(`projects/${pid(env)}/databases/(default)/documents/`.length);
+const pathOk = (p) => /^[A-Za-z0-9_\-]+(\/[A-Za-z0-9_\-]+)*$/.test(p) && p.split('/').length <= 6;
+// verzamelingen waar de beheerder iets aan mag verwijderen (niet: legal, features, config, badges-inhoud)
+const DELETABLE = new Set(['users', 'usernames', 'settings', 'presence', 'presenceSettings', 'liveness', 'readState', 'pushTokens', 'pushTests', 'notifications',
+  'subscriptions', 'friendships', 'chats', 'snaps', 'streaks', 'streakUsers', 'blocks', 'reports', 'moderation', 'modLog', 'spamLocks', 'spamLog', 'calls', 'servers', 'sessions', 'badges']);
+// onderliggende verzamelingen per soort document
+const SUBS = { servers: ['channels', 'messages', 'typing', 'reads'], channels: ['messages', 'typing', 'reads', 'voice', 'sigs'], chats: ['messages', 'typing', 'reads'], sessions: ['devices'], reports: ['notes'] };
+const EXISTS = new Set(['servers', 'channels', 'reports']);   // documenten die zelf echt bestaan (chats/<id> en sessions/<uid> zijn alleen een pad)
+const MEDIA_FIELDS = ['image', 'img', 'avatar', 'banner', 'icon'];
+
+const mkB = () => ({ left: SUB_BUDGET });
+const spend = (B) => { if (B.left <= 0) throw Object.assign(new Error('budget'), { budget: true }); B.left--; };
+async function bFetch(env, B, url, init) { spend(B); return gFetch(env, url, init); }
+async function fsJson(env, B, url, init, what) {
+  const r = await bFetch(env, B, url, init);
+  if (!r.ok) throw new Error(`${what} mislukt (${r.status}): ${(await r.text()).slice(0, 160)}`);
+  return r.json();
+}
+const flt = (field, op, value) => ({ fieldFilter: { field: { fieldPath: field }, op, value } });
+const sv = (s) => ({ stringValue: s });
+const fromDocs = (env, arr) => (arr || []).filter(x => x.document).map(x => ({ path: relPath(env, x.document.name), data: fromFields(x.document.fields) }));
+
+async function getDocsB(env, B, paths) {
+  const out = {};
+  for (let i = 0; i < paths.length; i += 90) {
+    const part = paths.slice(i, i + 90);
+    const j = await fsJson(env, B, `${ROOT(env)}:batchGet`, { method: 'POST', body: JSON.stringify({ documents: part.map(p => docName(env, p)) }) }, 'Firestore lezen');
+    for (const x of j) if (x.found) out[relPath(env, x.found.name)] = fromFields(x.found.fields);
+  }
+  return out;
+}
+async function countQ(env, B, parent, coll, where, group) {
+  const j = await fsJson(env, B, `${ROOT(env)}${parent ? '/' + parent : ''}:runAggregationQuery`, { method: 'POST', body: JSON.stringify({
+    structuredAggregationQuery: { structuredQuery: { from: [{ collectionId: coll, ...(group ? { allDescendants: true } : {}) }], ...(where ? { where } : {}) }, aggregations: [{ alias: 'n', count: {} }] } }) }, 'Tellen');
+  return Number(j?.[0]?.result?.aggregateFields?.n?.integerValue || 0);
+}
+async function queryQ(env, B, parent, coll, where, limit, fields) {
+  const j = await fsJson(env, B, `${ROOT(env)}${parent ? '/' + parent : ''}:runQuery`, { method: 'POST', body: JSON.stringify({
+    structuredQuery: { from: [{ collectionId: coll }], ...(where ? { where } : {}), select: { fields: (fields || ['__name__']).map(fieldPath => ({ fieldPath })) }, limit } }) }, 'Zoeken');
+  return fromDocs(env, j);
+}
+async function listQ(env, B, parent, coll, size, fields, token) {
+  const q = new URLSearchParams({ pageSize: String(size) });
+  for (const f of (fields || ['x'])) q.append('mask.fieldPaths', f);
+  if (token) q.set('pageToken', token);
+  const j = await fsJson(env, B, `${ROOT(env)}${parent ? '/' + parent : ''}/${coll}?${q}`, {}, 'Lijst ophalen');
+  return { docs: fromDocs(env, (j.documents || []).map(d => ({ document: d }))), next: j.nextPageToken || '' };
+}
+async function commitW(env, B, writes) {
+  for (let i = 0; i < writes.length; i += 400) await fsJson(env, B, `${ROOT(env)}:commit`, { method: 'POST', body: JSON.stringify({ writes: writes.slice(i, i + 400) }) }, 'Verwijderen');
+}
+const delW = (env, paths) => paths.map(p => ({ delete: docName(env, p) }));
+const delDocs = (env, B, paths) => (paths.length ? commitW(env, B, delW(env, paths)) : null);
+
+/* ---- foto's: Cloudinary (met API-sleutels) en R2 ---- */
+const cldOn = (env) => !!(env.CLOUDINARY_CLOUD && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET);
+const cldAuth = (env) => 'Basic ' + btoa(env.CLOUDINARY_API_KEY + ':' + env.CLOUDINARY_API_SECRET);
+function cldId(u) {
+  const m = String(u || '').match(/^https:\/\/res\.cloudinary\.com\/([A-Za-z0-9_-]+)\/image\/upload\/(?:v\d+\/)?([A-Za-z0-9_.\/-]+?)(?:\.[A-Za-z0-9]{2,4})?$/);
+  return m && !m[2].includes('..') ? { cloud: m[1], id: m[2] } : null;
+}
+function mediaUrls(d) {
+  const out = [];
+  for (const k of MEDIA_FIELDS) if (typeof d[k] === 'string') out.push(d[k]);
+  if (d.image && typeof d.image.url === 'string') out.push(d.image.url);
+  return out;
+}
+async function dropMedia(env, B, urls, M) {
+  const cl = [], r2 = [];
+  for (const u of urls) {
+    const c = cldId(u);
+    if (c) { cl.push(c); continue; }
+    const m = String(u || '').match(/\/m\/(u\/[A-Za-z0-9_\-./]{1,200})$/);
+    if (m && !m[1].includes('..')) r2.push(m[1]);
+  }
+  if (r2.length) {
+    if (env.MEDIA) { try { await env.MEDIA.delete(r2); M.r2 += r2.length; } catch { M.failed += r2.length; } } else M.skipped += r2.length;
+  }
+  if (!cl.length) return;
+  const mine = cl.filter(c => c.cloud === env.CLOUDINARY_CLOUD).map(c => c.id);
+  if (!cldOn(env)) { M.skipped += cl.length; return; }
+  M.skipped += cl.length - mine.length;
+  for (let i = 0; i < mine.length; i += 100) {
+    const ids = mine.slice(i, i + 100);
+    spend(B);
+    try {
+      const r = await fetch(`https://api.cloudinary.com/v1_1/${env.CLOUDINARY_CLOUD}/resources/image/upload?` + ids.map(x => 'public_ids[]=' + encodeURIComponent(x)).join('&'),
+        { method: 'DELETE', headers: { Authorization: cldAuth(env) } });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { M.failed += ids.length; continue; }
+      const del = Object.values(j.deleted || {});
+      M.cld += del.filter(v => v === 'deleted').length;
+      M.failed += del.filter(v => v !== 'deleted' && v !== 'not_found').length;
+    } catch { M.failed += ids.length; }
+  }
+}
+
+/* ---- een document met alles eronder wissen (kanalen, berichten, ...) ---- */
+async function wipeTree(env, B, path, P, M) {
+  const segs = path.split('/'), coll = segs[segs.length - 2];
+  for (const sub of (SUBS[coll] || [])) {
+    for (;;) {
+      const { docs } = await listQ(env, B, path, sub, LIM, sub === 'messages' ? MEDIA_FIELDS : ['x']);
+      if (!docs.length) break;
+      if (SUBS[sub]) for (const d of docs) await wipeTree(env, B, d.path, P, M);   // kanalen: eerst hun inhoud, dan het kanaal zelf
+      else {
+        if (sub === 'messages') await dropMedia(env, B, docs.flatMap(d => mediaUrls(d.data)), M);
+        await delDocs(env, B, docs.map(d => d.path)); P.n += docs.length;
+        if (docs.length < LIM) break;
+      }
+    }
+  }
+  await delDocs(env, B, [path]);
+  if (EXISTS.has(coll)) P.n += 1;
+}
+
+/* ---- taken ---- */
+function taskOk(env, uid, t) {
+  if (!t || typeof t !== 'object') return 'ongeldige taak';
+  const own = (p) => pathOk(p) && DELETABLE.has(p.split('/')[0]);
+  if (t.kind === 'docs') return Array.isArray(t.paths) && t.paths.length && t.paths.length <= 90 && t.paths.every(p => own(p) && p.includes(uid)) ? '' : 'ongeldige taak (docs)';
+  if (t.kind === 'query') {
+    if (t.value !== uid || !/^[A-Za-z]{2,20}$/.test(t.field || '') || !['EQUAL', 'ARRAY_CONTAINS', undefined].includes(t.op)) return 'ongeldige taak (query)';
+    if (t.parent) return /^servers\/[A-Za-z0-9_-]+(\/channels\/[A-Za-z0-9_-]+)?$/.test(t.parent) && t.coll === 'messages' ? '' : 'ongeldige taak (pad)';
+    return DELETABLE.has(t.coll) ? '' : 'ongeldige taak (verzameling)';
+  }
+  if (t.kind === 'tree') {
+    return Array.isArray(t.paths) && t.paths.length && t.paths.length <= 6 && t.paths.every(p => /^(chats|servers|sessions)\/[A-Za-z0-9_-]+$/.test(p) && p !== 'servers/official'
+      && (p.startsWith('servers/') || p.includes(uid))) ? '' : 'ongeldige taak (tree)';
+  }
+  if (t.kind === 'srvmember') return /^[A-Za-z0-9_-]{1,160}$/.test(t.sid || '') ? '' : 'ongeldige taak (server)';
+  if (['r2', 'auth', 'badges'].includes(t.kind)) return '';
+  return 'onbekende taak';
+}
+
+async function runTask(env, B, uid, mode, t, P, M) {
+  const count = mode === 'count';
+  switch (t.kind) {
+    case 'docs': {
+      const got = await getDocsB(env, B, t.paths), have = t.paths.filter(p => got[p]);
+      if (count || !have.length) { P.n = have.length; return {}; }
+      await dropMedia(env, B, have.flatMap(p => mediaUrls(got[p])), M);
+      await delDocs(env, B, have); P.n = have.length; return {};
+    }
+    case 'query': {
+      const where = flt(t.field, t.op || 'EQUAL', sv(uid));
+      if (count) { P.n = await countQ(env, B, t.parent, t.coll, where); return {}; }
+      for (;;) {
+        const docs = await queryQ(env, B, t.parent, t.coll, where, LIM, t.media ? MEDIA_FIELDS : ['__name__']);
+        if (!docs.length) return {};
+        if (t.rec) for (const d of docs) await wipeTree(env, B, d.path, P, M);
+        else { if (t.media) await dropMedia(env, B, docs.flatMap(d => mediaUrls(d.data)), M); await delDocs(env, B, docs.map(d => d.path)); P.n += docs.length; }
+        if (docs.length < LIM) return {};
+      }
+    }
+    case 'tree': {
+      if (count) { for (const [parent, coll] of (t.count || [])) { if (pathOk(parent)) P.n += await countQ(env, B, parent, coll); } return {}; }
+      for (const p of t.paths) {
+        if (p.startsWith('servers/')) {   // alleen de eigenaar-server van dit account (nooit de officiële server)
+          const s = (await getDocsB(env, B, [p]))[p];
+          if (!s) continue;
+          if (s.ownerId !== uid || s.official) throw new Error('Deze server is niet van dit account.');
+        }
+        await wipeTree(env, B, p, P, M);
+      }
+      return {};
+    }
+    case 'srvmember': {
+      const sp = 'servers/' + t.sid, s = (await getDocsB(env, B, [sp]))[sp];
+      if (!s || !Array.isArray(s.members) || !s.members.includes(uid) || s.ownerId === uid && !s.official) { P.n = 0; return {}; }
+      const where = flt('uid', 'EQUAL', sv(uid));
+      const chans = (await listQ(env, B, sp, 'channels', 100, ['x'])).docs.map(d => d.path);
+      if (chans.length > 30) throw new Error('Deze server heeft te veel kanalen (' + chans.length + ') voor één keer.');
+      const spots = [{ parent: sp }, ...chans.map(c => ({ parent: c }))];
+      if (count) {
+        for (const x of spots) P.n += await countQ(env, B, x.parent, 'messages', where);
+        P.n += 1; return {};
+      }
+      for (const x of spots) {
+        for (;;) {
+          const docs = await queryQ(env, B, x.parent, 'messages', where, LIM, MEDIA_FIELDS);
+          if (!docs.length) break;
+          await dropMedia(env, B, docs.flatMap(d => mediaUrls(d.data)), M);
+          await delDocs(env, B, docs.map(d => d.path)); P.n += docs.length;
+          if (docs.length < LIM) break;
+        }
+      }
+      const extra = [sp + '/typing/' + uid, sp + '/reads/' + uid, ...chans.flatMap(c => [c + '/typing/' + uid, c + '/reads/' + uid, c + '/voice/' + uid])];
+      const writes = delW(env, extra);
+      writes.push({ update: { name: docName(env, sp), fields: {} }, updateMask: { fieldPaths: ['mroles.`' + uid + '`'] }, currentDocument: { exists: true },
+        updateTransforms: [{ fieldPath: 'members', removeAllFromArray: { values: [sv(uid)] } }] });
+      await commitW(env, B, writes); P.n += 1; return {};
+    }
+    case 'badges': {
+      const docs = await queryQ(env, B, '', 'badges', flt('users', 'ARRAY_CONTAINS', sv(uid)), 30, ['__name__']);
+      if (count) { P.n = docs.length; return {}; }
+      if (docs.length) await commitW(env, B, docs.map(d => ({ transform: { document: docName(env, d.path), fieldTransforms: [{ fieldPath: 'users', removeAllFromArray: { values: [sv(uid)] } }] } })));
+      P.n = docs.length; return {};
+    }
+    case 'r2': {
+      if (!env.MEDIA) return {};
+      const o = await env.MEDIA.list({ prefix: `u/${uid}/`, limit: 1000 });
+      if (count) { P.n = o.objects.length; return {}; }
+      if (o.objects.length) { await env.MEDIA.delete(o.objects.map(x => x.key)); P.n = o.objects.length; M.r2 += o.objects.length; }
+      return { more: !!o.truncated };
+    }
+    case 'auth': {
+      const base = `https://identitytoolkit.googleapis.com/v1/projects/${pid(env)}/accounts`;
+      if (count) {
+        const j = await fsJson(env, B, base + ':lookup', { method: 'POST', body: JSON.stringify({ localId: [uid] }) }, 'Account opzoeken');
+        P.n = (j.users || []).length; return {};
+      }
+      const r = await bFetch(env, B, base + ':delete', { method: 'POST', body: JSON.stringify({ localId: uid }) });
+      if (r.ok) { P.n = 1; return {}; }
+      const e = await r.json().catch(() => ({}));
+      if (/USER_NOT_FOUND/.test(JSON.stringify(e))) { P.n = 0; return {}; }
+      throw new Error('Inlogaccount verwijderen mislukt (' + r.status + '): ' + String((e.error && e.error.message) || '').slice(0, 120));
+    }
+  }
+  throw new Error('onbekende taak');
+}
+
+async function adminPlan(env, B, uid) {
+  const [prof] = await Promise.all([getDocsB(env, B, ['users/' + uid])]);
+  const u = prof['users/' + uid] || null;
+  const T = []; let n = 0;
+  const add = (cat, label, t) => T.push({ id: 't' + (n++), cat, label, ...t });
+
+  // vriendschappen -> DM-chats
+  const fr = await queryQ(env, B, '', 'friendships', flt('users', 'ARRAY_CONTAINS', sv(uid)), 200, ['__name__']);
+  const fids = fr.map(f => f.path.split('/')[1]);
+  for (let i = 0; i < fids.length; i += 4) {
+    const part = fids.slice(i, i + 4);
+    add('dm', 'DM-berichten', { kind: 'tree', paths: part.map(id => 'chats/' + id), count: part.map(id => ['chats/' + id, 'messages']) });
+  }
+  add('dm', 'Vriendschappen en verzoeken', { kind: 'query', coll: 'friendships', field: 'users', op: 'ARRAY_CONTAINS', value: uid });
+
+  // servers: eigen servers (alles weg) en andere servers (eigen berichten en lidmaatschap)
+  const sv2 = await queryQ(env, B, '', 'servers', flt('members', 'ARRAY_CONTAINS', sv(uid)), 80, ['name', 'ownerId', 'official']);
+  const owned = sv2.filter(s => s.data.ownerId === uid && !s.data.official), joined = sv2.filter(s => !owned.includes(s));
+  const ownedNames = [], MAXO = 5;
+  for (const s of owned.slice(0, MAXO)) {
+    const sid = s.path.split('/')[1], ch = (await listQ(env, B, s.path, 'channels', 60, ['x'])).docs.map(d => d.path);
+    ownedNames.push(s.data.name || sid);
+    add('servers', 'Eigen servers (kanalen en berichten)', { kind: 'tree', paths: [s.path],
+      count: [[s.path, 'messages'], [s.path, 'channels'], ...ch.slice(0, 30).map(c => [c, 'messages'])], server: s.data.name || sid });
+  }
+  for (const s of joined) add('srvmsg', 'Berichten en lidmaatschap in andere servers', { kind: 'srvmember', sid: s.path.split('/')[1], server: s.data.name || s.path });
+
+  // streakrs en streaks
+  add('snaps', 'Streakrs verstuurd', { kind: 'query', coll: 'snaps', field: 'from', value: uid, media: true });
+  add('snaps', 'Streakrs ontvangen', { kind: 'query', coll: 'snaps', field: 'to', value: uid, media: true });
+  add('snaps', 'Streaks', { kind: 'query', coll: 'streaks', field: 'users', op: 'ARRAY_CONTAINS', value: uid });
+  add('snaps', 'Streak-herstellers', { kind: 'docs', paths: ['streakUsers/' + uid] });
+
+  // meldingen en apparaten
+  add('notif', 'Meldingen', { kind: 'query', coll: 'notifications', field: 'uid', value: uid });
+  add('notif', 'Pushtokens', { kind: 'query', coll: 'pushTokens', field: 'uid', value: uid });
+  add('notif', 'Apparaten en sessies', { kind: 'tree', paths: ['sessions/' + uid], count: [['sessions/' + uid, 'devices']] });
+
+  // moderatie
+  add('mod', 'Rapporten van dit account', { kind: 'query', coll: 'reports', field: 'reporterUid', value: uid, rec: true });
+  add('mod', 'Rapporten over dit account', { kind: 'query', coll: 'reports', field: 'targetUid', value: uid, rec: true });
+  add('mod', 'Moderatielogboek', { kind: 'query', coll: 'modLog', field: 'uid', value: uid });
+  add('mod', 'Spam-logboek', { kind: 'query', coll: 'spamLog', field: 'uid', value: uid });
+  add('mod', 'Moderatiestand en spamblokkade', { kind: 'docs', paths: ['moderation/' + uid, 'spamLocks/' + uid] });
+  add('mod', 'Blokkades door dit account', { kind: 'query', coll: 'blocks', field: 'blocker', value: uid });
+  add('mod', 'Blokkades van dit account', { kind: 'query', coll: 'blocks', field: 'blocked', value: uid });
+  add('mod', 'Badges', { kind: 'badges' });
+
+  // overig
+  add('misc', 'Oproepen als beller', { kind: 'query', coll: 'calls', field: 'caller', value: uid });
+  add('misc', 'Oproepen als gebelde', { kind: 'query', coll: 'calls', field: 'callee', value: uid });
+  add('misc', 'Aanwezigheid en gelezen-status', { kind: 'docs', paths: ['presence/' + uid, 'presence/' + uid + '_m', 'presenceSettings/' + uid, 'liveness/' + uid, 'readState/' + uid, 'pushTests/' + uid] });
+  if (env.MEDIA) add('misc', 'Foto’s op de Worker (R2)', { kind: 'r2' });
+
+  // profiel (als laatste: zo blijft het account vindbaar als er iets misgaat)
+  add('profile', 'Gebruikersnaam', { kind: 'query', coll: 'usernames', field: 'uid', value: uid });
+  add('profile', 'Profiel, instellingen en abonnement', { kind: 'docs', paths: ['users/' + uid, 'settings/' + uid, 'subscriptions/' + uid] });
+  add('auth', 'Inlogaccount', { kind: 'auth' });
+
+  return { ok: true, user: { hasProfile: !!u, username: u ? u.username || '' : '' }, ownedServers: ownedNames, skippedServers: Math.max(0, owned.length - MAXO),
+    media: { cloudinary: cldOn(env) }, tasks: T };
+}
+
+/* ---- gebruik ---- */
+const pacificMidnight = (now = new Date()) => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hourCycle: 'h23', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    .formatToParts(now).map(x => [x.type, x.value]));
+  return now.getTime() - ((+p.hour * 3600 + +p.minute * 60 + +p.second) * 1000 + now.getMilliseconds());
+};
+async function authList(env, B, pages) {
+  const users = []; let token = '', more = false;
+  for (let i = 0; i < pages; i++) {
+    const q = new URLSearchParams({ maxResults: '1000' }); if (token) q.set('nextPageToken', token);
+    const j = await fsJson(env, B, `https://identitytoolkit.googleapis.com/v1/projects/${pid(env)}/accounts:batchGet?${q}`, {}, 'Inlogaccounts ophalen');
+    for (const a of (j.users || [])) users.push({ u: a.localId, e: a.email || '', c: +a.createdAt || 0, l: +a.lastLoginAt || 0 });
+    token = j.nextPageToken || ''; more = !!token;
+    if (!token) break;
+  }
+  return { users, more };
+}
+async function adminUsage(env, B, b) {
+  const okName = (n) => /^[A-Za-z][A-Za-z0-9]{1,40}$/.test(n);
+  const jobs = [...(b.colls || []).filter(okName).map(n => [n, false]), ...(b.groups || []).filter(okName).map(n => [n, true])].slice(0, SUB_BUDGET - 2);
+  const counts = {};
+  await Promise.all(jobs.map(async ([n, group]) => {
+    try { counts[(group ? '~' : '') + n] = await countQ(env, B, '', n, null, group); } catch (e) { if (e.budget) throw e; counts[(group ? '~' : '') + n] = null; }
+  }));
+  return { ok: true, counts };
+}
+async function adminExternal(env, B) {
+  const out = {};
+  const auth = (async () => {
+    try { const r = await authList(env, B, 3); out.auth = { ok: true, count: r.users.length, more: r.more, users: r.users }; }
+    catch (e) { out.auth = { ok: false, reason: e.message }; }
+  })();
+  const fsu = (async () => {
+    try {
+      const now = new Date(), since = pacificMidnight(now), secs = Math.max(60, Math.ceil((now.getTime() - since) / 1000));
+      const one = async (metric) => {
+        const q = new URLSearchParams({ filter: `metric.type="firestore.googleapis.com/document/${metric}"`, 'interval.startTime': new Date(since).toISOString(), 'interval.endTime': now.toISOString(),
+          'aggregation.alignmentPeriod': secs + 's', 'aggregation.perSeriesAligner': 'ALIGN_SUM', 'aggregation.crossSeriesReducer': 'REDUCE_SUM' });
+        const r = await bFetch(env, B, `https://monitoring.googleapis.com/v3/projects/${pid(env)}/timeSeries?${q}`);
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(r.status === 403 ? 'De servicesleutel mag het gebruik niet lezen' : 'Cloud Monitoring gaf fout ' + r.status);
+        return (j.timeSeries || []).reduce((a, s) => a + (s.points || []).reduce((x, p) => x + Number(p.value?.int64Value || p.value?.doubleValue || 0), 0), 0);
+      };
+      const [reads, writes, deletes] = await Promise.all([one('read_count'), one('write_count'), one('delete_count')]);
+      out.firestore = { ok: true, reads, writes, deletes, since };
+    } catch (e) { out.firestore = { ok: false, reason: e.message }; }
+  })();
+  const cld = (async () => {
+    if (!cldOn(env)) { out.cloudinary = { ok: false, reason: 'niet ingesteld' }; return; }
+    try {
+      spend(B);
+      const r = await fetch(`https://api.cloudinary.com/v1_1/${env.CLOUDINARY_CLOUD}/usage`, { headers: { Authorization: cldAuth(env) } });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error((j.error && j.error.message) || 'fout ' + r.status);
+      const cr = j.credits || {};
+      const limit = cr.limit || (cr.used_percent && cr.usage ? cr.usage / cr.used_percent * 100 : 0);
+      out.cloudinary = { ok: true, plan: j.plan || '', credits: { usage: cr.usage || 0, limit: limit || 0 },
+        storage: { usage: j.storage?.usage ?? null }, bandwidth: { usage: j.bandwidth?.usage ?? null }, resources: j.resources ?? j.objects?.usage ?? null };
+    } catch (e) { out.cloudinary = { ok: false, reason: e.message }; }
+  })();
+  await Promise.all([auth, fsu, cld]);
+  return { ok: true, ...out };
+}
+
+/* ---- opruimacties ---- */
+const ORPHAN_COLLS = [   // [verzameling, label, hoe vind je de eigenaar (uid)]
+  ['users', 'Profielen', (id) => id], ['usernames', 'Gebruikersnamen', (id, d) => d.uid], ['settings', 'Instellingen', (id) => id], ['presence', 'Aanwezigheid', (id) => id.replace(/_m$/, '')],
+  ['presenceSettings', 'Aanwezigheidsinstellingen', (id) => id], ['liveness', 'Levenstekens', (id) => id], ['readState', 'Gelezen-status', (id) => id],
+  ['pushTokens', 'Pushtokens', (id, d) => d.uid], ['notifications', 'Meldingen', (id, d) => d.uid]
+];
+async function adminMaint(env, B, b) {
+  const dry = b.dry !== false, days = Math.max(1, Math.min(3650, +b.days || 30)), cutoff = new Date(Date.now() - days * 86400000).toISOString();
+  const task = b.task;
+  let docs = [], coll = '', where = null;
+  if (task === 'notifs') { coll = 'notifications'; where = flt('createdAt', 'LESS_THAN', { timestampValue: cutoff }); }
+  else if (task === 'spamlog') { coll = 'spamLog'; where = flt('at', 'LESS_THAN', { timestampValue: cutoff }); }
+  else if (task === 'snaps') { coll = 'snaps'; where = flt('state', 'EQUAL', sv('gone')); }
+  else if (task === 'orphans') return maintOrphans(env, B, dry);
+  else return bad('onbekende opruimactie');
+  if (dry) return { ok: true, n: await countQ(env, B, '', coll, where), more: false };
+  let n = 0;
+  for (;;) {
+    docs = await queryQ(env, B, '', coll, where, LIM, ['__name__']);
+    if (!docs.length) return { ok: true, n, more: false };
+    try { await delDocs(env, B, docs.map(d => d.path)); } catch (e) { if (e.budget) return { ok: true, n, more: true }; throw e; }
+    n += docs.length;
+    if (docs.length < LIM) return { ok: true, n, more: false };
+    if (B.left < 4) return { ok: true, n, more: true };
+  }
+}
+async function maintOrphans(env, B, dry) {
+  const a = await authList(env, B, 5);
+  if (a.more) return bad('Er zijn te veel inlogaccounts om weesdocumenten veilig te herkennen.', 409);
+  if (!a.users.length) return bad('De lijst met inlogaccounts is leeg; daarom wordt er niets verwijderd.', 409);
+  const have = new Set(a.users.map(x => x.u)), by = {}, victims = [];
+  let partial = false;
+  for (const [coll, label, who] of ORPHAN_COLLS) {
+    if (B.left < 4) { partial = true; break; }
+    let token = '';
+    for (let page = 0; page < 3; page++) {
+      if (B.left < 3) { partial = true; break; }
+      const r = await listQ(env, B, '', coll, 300, ['uid'], token);
+      for (const d of r.docs) {
+        const id = d.path.split('/')[1], owner = who(id, d.data);
+        if (owner && !have.has(owner) && /^[A-Za-z0-9_-]{6,160}$/.test(owner)) { victims.push(d.path); by[label] = (by[label] || 0) + 1; }
+      }
+      token = r.next; if (!token) break;
+      if (page === 2) partial = true;
+    }
+  }
+  const total = victims.length;
+  if (!dry && total) { try { await delDocs(env, B, victims); } catch (e) { if (e.budget) return { ok: true, n: 0, more: true }; throw e; } }
+  return { ok: true, n: total, more: false, by, note: partial ? 'Niet alles is gescand (alleen de eerste documenten per onderdeel). Voer het daarna nog eens uit.' : '' };
+}
+
+/* ---- ingang ---- */
+let modCache = { exp: 0, set: new Set() };
+async function modSet(env) {
+  if (modCache.exp > Date.now()) return modCache.set;
+  const d = await getDocs(env, ['badges/moderator', 'badges/admin']);
+  modCache = { exp: Date.now() + 60000, set: new Set([...((d['badges/moderator'] || {}).users || []), ...((d['badges/admin'] || {}).users || [])]) };
+  return modCache.set;
+}
+async function adminApi(env, uid, b) {
+  const mods = await modSet(env);
+  if (!mods.has(uid)) return bad('Alleen moderators mogen dit.', 403);
+  const B = mkB();
+  try {
+    switch (b.action) {
+      case 'plan': {
+        const target = idOk(b.uid);
+        if (!target) return bad('Ongeldig account.');
+        if (target === uid) return bad('Je kunt je eigen account hier niet verwijderen (doe dat via Instellingen).', 403);
+        if (mods.has(target)) return bad('Dit account is een moderator. Haal eerst de moderator-badge weg.', 403);
+        return await adminPlan(env, B, target);
+      }
+      case 'run': {
+        const target = idOk(b.uid), mode = b.mode === 'delete' ? 'delete' : 'count';
+        if (!target || target === uid || mods.has(target)) return bad('Dit account kan niet worden beheerd.', 403);
+        const tasks = Array.isArray(b.tasks) ? b.tasks.slice(0, 30) : [];
+        const results = [];
+        for (const t of tasks) {
+          const id = String(t && t.id || '');
+          const why = taskOk(env, target, t);
+          if (why) { results.push({ id, error: why }); continue; }
+          if (B.left < 2) { results.push({ id, skipped: true }); continue; }
+          const P = { n: 0 }, M = { cld: 0, r2: 0, failed: 0, skipped: 0 };
+          try {
+            const r = await runTask(env, B, target, mode, t, P, M);
+            results.push({ id, n: P.n, more: !!r.more, media: M });
+          } catch (e) {
+            if (e.budget) results.push(mode === 'count' ? { id, skipped: true } : { id, n: P.n, more: true, media: M });
+            else { console.error('Beheertaak mislukt', t.kind, e); results.push({ id, error: e.message }); }
+          }
+        }
+        return { ok: true, results };
+      }
+      case 'usage': return await adminUsage(env, B, b);
+      case 'external': return await adminExternal(env, B);
+      case 'maint': return await adminMaint(env, B, b);
+    }
+    return bad('onbekende actie');
+  } catch (e) {
+    if (e.budget) return { ok: false, reason: 'Te veel in één keer; probeer het opnieuw.', status: 503 };
+    throw e;
+  }
 }
 
 const json = (obj, status, cors) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json', ...cors } });
@@ -714,7 +1205,7 @@ export default {
     const url = new URL(req.url);
     if (req.method === 'GET' && url.pathname.startsWith('/m/')) return serveMedia(req, env, url);
     if (req.method === 'GET') return json({ ok: true, dienst: 'Infinitum push' }, 200, cors);
-    if (req.method !== 'POST' || (url.pathname !== '/notify' && url.pathname !== '/upload' && url.pathname !== '/turn' && url.pathname !== '/lastfm')) return json({ ok: false, reason: 'niet gevonden' }, 404, cors);
+    if (req.method !== 'POST' || (url.pathname !== '/notify' && url.pathname !== '/upload' && url.pathname !== '/turn' && url.pathname !== '/lastfm' && url.pathname !== '/admin')) return json({ ok: false, reason: 'niet gevonden' }, 404, cors);
 
     let uid;
     try { uid = await verifyIdToken(env, (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '')); }
@@ -728,6 +1219,12 @@ export default {
     if (url.pathname === '/lastfm') {
       try { return await lastfm(req, env, uid, cors); }
       catch (e) { console.error('Last.fm fout', e); return json({ ok: false, code: 'error', reason: 'Serverfout: ' + e.message }, 500, cors); }
+    }
+
+    if (url.pathname === '/admin') {   // v0.37: beheer (alleen moderators), zie adminApi
+      let b; try { b = await req.json(); } catch { return json({ ok: false, reason: 'ongeldige aanvraag' }, 400, cors); }
+      try { const res = await adminApi(env, uid, b || {}); return json(res, res.ok === false ? (res.status || 400) : 200, cors); }
+      catch (e) { console.error('Beheer fout', e); return json({ ok: false, reason: 'Serverfout: ' + e.message }, 500, cors); }
     }
 
     if (url.pathname === '/turn') {
