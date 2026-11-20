@@ -2326,3 +2326,5 @@ dialog.du-dlg { --dlgbg: rgba(12, 16, 40, .98); }
 .du .dlg-actions { position: sticky; bottom: 0; z-index: 2; margin: 2px -26px 0; padding: 18px 26px 20px; background: linear-gradient(to bottom, transparent, var(--dlgbg) 32%); }
 @media (max-width: 560px) { .du-dlg .dlg-in { padding: 18px; } .du .dlg-actions { margin: 2px -18px 0; padding: 16px 18px 18px; } .du-head .du-total b { font-size: 22px; } }
 @media (max-width: 560px) { .stg-kpis, .ov-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stg-kpi b, .ov-tile b { font-size: 22px; } .stg-kpi, .ov-tile { padding: 14px; } }
+a.ghost.sm, a.glow.sm { display: inline-block; text-decoration: none; }
+a.ghost.sm { color: var(--text); }

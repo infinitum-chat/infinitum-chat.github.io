@@ -407,11 +407,16 @@ export function createAdminTools(D) {
               h('div', { class: 'gauges' }, gauge('Lezen', fs.reads, SPARK.reads), gauge('Schrijven', fs.writes, SPARK.writes), gauge('Verwijderen', fs.deletes, SPARK.deletes),
                 gauge('Opslag (schatting)', est, SPARK.bytes, fmtBytes, 'schatting op basis van aantal documenten')),
               h('p', { class: 'stg-note', text: `Sinds de laatste dagreset (middernacht Pacific, ${new Date(fs.since).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })} jouw tijd). Op het Blaze-plan gelden deze grenzen niet, maar kosten ze wel geld boven de gratis hoeveelheid. Metingen lopen een paar minuten achter.` }))
-            : h('div', { class: 'panel stg-card' }, h('div', { class: 'du-warn info' }, h('span', { html: ADM_IC.alert }), h('div', {}, h('b', { text: 'Gebruik kan nog niet worden uitgelezen' }),
-                h('p', { text: 'Melding van Google: ' + (fs?.reason || 'onbekende reden') + ' (Hoort hier iets over rechten bij? Controleer in IAM of het firebase-adminsdk-account de rol “Monitoring Viewer” heeft en wacht een paar minuten.)' }),
-                h('a', { class: 'glow sm', href: 'https://console.cloud.google.com/iam-admin/iam?project=chat-a5794', target: '_blank', rel: 'noopener noreferrer', text: 'Open IAM ↗' }))),
-              h('p', { class: 'stg-note', text: 'Tot die tijd kun je het gebruik bekijken in Firebase.' }),
-              h('a', { class: 'ghost sm', href: FB + '/usage', target: '_blank', rel: 'noopener noreferrer', text: 'Firebase → Gebruik ↗' })));
+            : (() => {
+                const bill = /billing/i.test(fs?.reason || '');
+                return h('div', { class: 'panel stg-card' }, h('div', { class: 'du-warn info' }, h('span', { html: ADM_IC.alert }), h('div', {},
+                  h('b', { text: bill ? 'Het gebruik van vandaag is alleen op het Blaze-plan uit te lezen' : 'Gebruik kan nog niet worden uitgelezen' }),
+                  h('p', { text: bill
+                    ? 'Google geeft dit cijfer alleen door als er een betaalmethode aan het project hangt (Blaze, betalen per gebruik, met dezelfde gratis hoeveelheid). Op het gratis Spark-plan kan dat niet. Alles hier in dit scherm werkt wel gewoon; alleen deze drie balken ontbreken.'
+                    : 'Melding van Google: ' + (fs?.reason || 'onbekende reden') + ' (gaat het over rechten? Controleer in IAM of het firebase-adminsdk-account de rol “Monitoring Viewer” heeft en wacht een paar minuten.)' }),
+                  bill ? null : h('a', { class: 'glow sm', href: 'https://console.cloud.google.com/iam-admin/iam?project=chat-a5794', target: '_blank', rel: 'noopener noreferrer', text: 'Open IAM ↗' }))),
+                h('p', { class: 'stg-note', text: 'Het gebruik van vandaag zie je ook in Firebase.' }),
+              h('a', { class: 'ghost sm', href: FB + '/usage', target: '_blank', rel: 'noopener noreferrer', text: 'Firebase → Gebruik ↗' })); })());
 
       // collecties
       const rows = Object.entries(COLLS).map(([k, l]) => ({ k, l, n: c[k], b: (c[k] || 0) * (AVG[k] || 400) })).filter(r => r.n != null).sort((a, b) => b.b - a.b);
