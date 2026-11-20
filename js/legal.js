@@ -1,7 +1,7 @@
 /* Infinitum: cookies, algemene voorwaarden, privacybeleid en huisregels.
    De teksten staan in Firestore (legal/terms, legal/privacy, legal/rules) en zijn aan te passen in Admin -> Voorwaarden.
    Bestaat er (nog) niets in Firestore, dan worden de standaardteksten hieronder getoond. */
-import { db, enableAnalytics } from './firebase.js?v=0.36';
+import { db, enableAnalytics } from './firebase.js?v=0.37';
 import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
 
 export const LEGAL_DOCS = [

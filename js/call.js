@@ -10,12 +10,12 @@
      verbindingsgegevens verzameld heeft en sturen die in één keer mee (offer en answer), dus per oproep maar 2 à 3 schrijfacties.
    - config/features.calls = false zet bellen voor iedereen uit (noodschakelaar, net als typingIndicators).
    Cloudflare Worker (worker.js): POST /turn geeft tijdelijke TURN-gegevens, en een pushmelding 'call' laat een gesloten app overgaan. */
-import { db } from './firebase.js?v=0.36';
-import { createPip } from './pip.js?v=0.36';
-import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=0.36';
-import { isFs, toggleFs, exitFs } from './fs.js?v=0.36';
-import { attachVolume, volumeSlider } from './volume.js?v=0.36';
-import { openMic } from './audio-fx.js?v=0.36';
+import { db } from './firebase.js?v=0.37';
+import { createPip } from './pip.js?v=0.37';
+import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=0.37';
+import { isFs, toggleFs, exitFs } from './fs.js?v=0.37';
+import { attachVolume, volumeSlider } from './volume.js?v=0.37';
+import { openMic } from './audio-fx.js?v=0.37';
 import {
   collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';

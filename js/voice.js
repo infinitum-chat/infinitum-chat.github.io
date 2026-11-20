@@ -14,12 +14,12 @@
 
    Scherm delen (net als bij bellen): elke verbinding heeft vanaf het begin een (lege) videoverbinding; het scherm wordt er later alleen
    ingezet (replaceTrack), dus zonder opnieuw te onderhandelen. `sharing` in het aanwezigheidsdocument meldt wie deelt. */
-import { db } from './firebase.js?v=0.36';
-import { createPip } from './pip.js?v=0.36';
-import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=0.36';
-import { fsElement, isFs as isFsEl, toggleFs, exitAnyFs } from './fs.js?v=0.36';
-import { attachVolume, volumeSlider } from './volume.js?v=0.36';
-import { openMic } from './audio-fx.js?v=0.36';
+import { db } from './firebase.js?v=0.37';
+import { createPip } from './pip.js?v=0.37';
+import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=0.37';
+import { fsElement, isFs as isFsEl, toggleFs, exitAnyFs } from './fs.js?v=0.37';
+import { attachVolume, volumeSlider } from './volume.js?v=0.37';
+import { openMic } from './audio-fx.js?v=0.37';
 import {
   collection, doc, setDoc, updateDoc, deleteDoc, getDocs, onSnapshot, query, where, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
