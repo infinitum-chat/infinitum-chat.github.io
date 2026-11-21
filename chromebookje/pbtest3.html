@@ -7,7 +7,7 @@
 <style>
   body { font: 16px system-ui, sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; background: #111; color: #eee; }
   button, input { font: inherit; padding: 10px 12px; margin: 4px 0; border-radius: 8px; border: 1px solid #555; background: #222; color: #eee; }
-  button { cursor: pointer; } input { width: 100%; box-sizing: border-box; }
+  button { cursor: pointer; } button:disabled { opacity: .5; cursor: wait; } input { width: 100%; box-sizing: border-box; }
   pre { background: #000; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
 </style>
 </head>
@@ -192,14 +192,18 @@ async function run(cred) {
   }
 }
 
-document.getElementById("g").onclick = async () => {
+// Maar één run tegelijk: twee runs met hetzelfde uid botsen op elkaar (zelfde record-id's) en geven schijnfouten.
+let busy = false;
+const setBusy = (b) => { busy = b; document.getElementById("g").disabled = b; document.getElementById("ep").disabled = b; };
+const once = (fn) => async () => { if (busy) return; setBusy(true); try { await fn(); } finally { setBusy(false); } };
+document.getElementById("g").onclick = once(async () => {
   const p = new GoogleAuthProvider(); p.setCustomParameters({ prompt: "select_account" });
   try { await run(await signInWithPopup(auth, p)); } catch (e) { log("Google-login mislukt: " + e.message); }
-};
-document.getElementById("ep").onclick = async () => {
+});
+document.getElementById("ep").onclick = once(async () => {
   try { await run(await signInWithEmailAndPassword(auth, document.getElementById("em").value.trim(), document.getElementById("pw").value)); }
   catch (e) { log("E-mail-login mislukt: " + e.message); }
-};
+});
 </script>
 </body>
 </html>
