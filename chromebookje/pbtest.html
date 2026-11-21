@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PocketBase-inlogtest</title>
+<style>
+  body { font: 16px system-ui, sans-serif; max-width: 640px; margin: 24px auto; padding: 0 16px; background: #111; color: #eee; }
+  button, input { font: inherit; padding: 10px 12px; margin: 4px 0; border-radius: 8px; border: 1px solid #555; background: #222; color: #eee; }
+  button { cursor: pointer; } input { width: 100%; box-sizing: border-box; }
+  pre { background: #000; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-break: break-all; }
+  .ok { color: #6f6; } .bad { color: #f66; }
+</style>
+</head>
+<body>
+<h1>PocketBase-inlogtest</h1>
+<p>Tijdelijke testpagina. Verwijder dit bestand na de test.</p>
+<button id="g">Inloggen met Google</button>
+<p>of met e-mail:</p>
+<input id="em" type="email" placeholder="e-mail" autocomplete="username">
+<input id="pw" type="password" placeholder="wachtwoord" autocomplete="current-password">
+<button id="ep">Inloggen met e-mail</button>
+<pre id="out">Nog niets gedaan.</pre>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+
+const PB = "https://infinitum-db.tail15ab2e.ts.net";
+const app = initializeApp({
+  apiKey: "AIzaSyBdA_VbJBO7JwrGIgEx9DcUr-ddREtEoQI",
+  authDomain: "chat-a5794.firebaseapp.com",
+  projectId: "chat-a5794",
+  appId: "1:537984917384:web:f689560080e2cfd4a1243d"
+});
+const auth = getAuth(app);
+const out = document.getElementById("out");
+const say = (t, cls) => { out.className = cls || ""; out.textContent = t; };
+
+async function run(cred) {
+  try {
+    const uid = cred.user.uid;
+    const idToken = await cred.user.getIdToken();
+    say("Firebase-login gelukt (uid " + uid + "). Nu bij PocketBase inloggen...");
+
+    const r1 = await fetch(PB + "/api/fb-login", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idToken })
+    });
+    const j1 = await r1.json().catch(() => ({}));
+    if (!r1.ok) return say("STAP 1 mislukt (" + r1.status + "):\n" + JSON.stringify(j1, null, 2), "bad");
+
+    // controle: is de sessie echt geldig? (auth-refresh werkt alleen met een geldig token)
+    const r2 = await fetch(PB + "/api/collections/accounts/auth-refresh", {
+      method: "POST", headers: { Authorization: j1.token }
+    });
+    const j2 = await r2.json().catch(() => ({}));
+    if (!r2.ok) return say("STAP 2 mislukt (" + r2.status + "):\n" + JSON.stringify(j2, null, 2), "bad");
+
+    const same = j2.record && j2.record.id === uid;
+    say((same ? "GELUKT: PocketBase-account-id is gelijk aan je Firebase-uid.\n" : "LET OP: ids zijn niet gelijk!\n")
+      + "Firebase-uid:   " + uid + "\nPocketBase-id:  " + (j2.record && j2.record.id), same ? "ok" : "bad");
+  } catch (e) {
+    say("Fout: " + (e && e.message || e), "bad");
+  }
+}
+
+document.getElementById("g").onclick = async () => {
+  const p = new GoogleAuthProvider(); p.setCustomParameters({ prompt: "select_account" });
+  try { await run(await signInWithPopup(auth, p)); } catch (e) { say("Google-login mislukt: " + e.message, "bad"); }
+};
+document.getElementById("ep").onclick = async () => {
+  try { await run(await signInWithEmailAndPassword(auth, document.getElementById("em").value.trim(), document.getElementById("pw").value)); }
+  catch (e) { say("E-mail-login mislukt: " + e.message, "bad"); }
+};
+</script>
+</body>
+</html>
