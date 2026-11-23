@@ -1,4 +1,5 @@
 import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=0.37';
+import { BACKEND, pbLogin, pbLogout } from './db.js?v=0.37';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -8,7 +9,7 @@ import {
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp, runTransaction
-} from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
+} from './db.js?v=0.37';
 
 import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=0.37';
 import { createStreakr } from './streakr.js?v=0.37';
@@ -225,6 +226,7 @@ function watch(name, q, next) {
 }
 
 function fbErr(e) {
+  if (e?.pb) return e.message;   // PocketBase: de server geeft zelf een Nederlandse uitleg
   const c = e?.code || '';
   if (c.includes('permission-denied')) return 'Firestore weigerde dit verzoek (permission-denied). Probeer het zo nog eens. Blijft dit gebeuren, controleer dan of de nieuwste firestore.rules zijn gepubliceerd.';
   if (c.includes('not-found')) return 'Je Firestore-database bestaat nog niet (not-found). Maak hem aan in de Firebase Console: Build → Firestore Database → Database maken.';
@@ -411,12 +413,13 @@ async function ensureProfile(user) {
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
     teardown();
+    pbLogout();
     $('#app').hidden = true; $('#auth').hidden = false;
     return;
   }
   if (S.started && S.me?.uid === user.uid) return;
   S.me = user;
-  try { await ensureProfile(user); }
+  try { await pbLogin(user); await ensureProfile(user); }   // stap 9: bij ?backend=pocketbase eerst een PocketBase-sessie openen
   catch (e) {
     console.error(e);
     $('#aErr').textContent = fbErr(e);
@@ -3180,6 +3183,7 @@ const permText = () => !('Notification' in window) ? 'Je browser ondersteunt gee
 
 // Vraagt de push-dienst (Cloudflare Worker) een melding te sturen. Mislukt dit, dan merkt de gebruiker er niets van.
 async function pushPing(payload) {
+  if (BACKEND === 'pocketbase') return null;   // stap 10: de Worker moet eerst PocketBase lezen
   if (!PUSH_URL || !auth.currentUser) return null;
   try {
     const idt = await auth.currentUser.getIdToken();

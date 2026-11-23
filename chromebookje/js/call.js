@@ -18,7 +18,7 @@ import { attachVolume, volumeSlider } from './volume.js?v=0.37';
 import { openMic } from './audio-fx.js?v=0.37';
 import {
   collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp
-} from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
+} from './db.js?v=0.37';
 
 const RING_MS = 45000;          // zo lang gaat het over voordat het "geen gehoor" is
 const STALE_MS = 90000;         // een oproep die ouder is dan dit negeren we (kan ook door een afwijkende klok komen)

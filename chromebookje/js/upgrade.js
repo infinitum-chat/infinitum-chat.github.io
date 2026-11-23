@@ -2,12 +2,14 @@ import { auth, db, googleProvider, PUSH_URL } from './firebase.js?v=0.12';
 import {
   onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, signOut
 } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js';
-import { collection, doc, getDoc, getDocs, deleteDoc, onSnapshot, writeBatch, serverTimestamp } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
+import { BACKEND, pbLogin } from './db.js?v=0.37';
+import { collection, doc, getDoc, getDocs, deleteDoc, onSnapshot, writeBatch, serverTimestamp } from './db.js?v=0.37';
 
 const $ = (sel) => document.querySelector(sel);
 
 // Vraagt de push-dienst (Cloudflare Worker) de moderators te waarschuwen. Mislukt dit, dan merkt de gebruiker er niets van.
 async function pushPing(payload) {
+  if (BACKEND === 'pocketbase') return;   // stap 10: de Worker moet eerst PocketBase lezen
   if (!PUSH_URL || !auth.currentUser) return;
   try {
     const idt = await auth.currentUser.getIdToken();
@@ -292,6 +294,7 @@ onAuthStateChanged(auth, async (user) => {
   if (!user) { show('stLogin'); return; }
   show('stLoad');
   try {
+    await pbLogin(user);   // stap 9: bij ?backend=pocketbase eerst een PocketBase-sessie openen
     await loadData(user.uid);
     if (!profile) { show('stNoProfile'); return; }
     $('#whoName').textContent = profile.username || '';
