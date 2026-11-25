@@ -9,14 +9,13 @@ const $ = (sel) => document.querySelector(sel);
 
 // Vraagt de push-dienst (Cloudflare Worker) de moderators te waarschuwen. Mislukt dit, dan merkt de gebruiker er niets van.
 async function pushPing(payload) {
-  if (BACKEND === 'pocketbase') return;   // stap 10: de Worker moet eerst PocketBase lezen
   if (!PUSH_URL || !auth.currentUser) return;
   try {
     const idt = await auth.currentUser.getIdToken();
     await fetch(PUSH_URL.replace(/\/$/, '') + '/notify', {
       method: 'POST', keepalive: true,
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idt },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(BACKEND === 'pocketbase' ? { ...payload, backend: 'pocketbase' } : payload)   // stap 10: de Worker leest dan PocketBase
     });
   } catch (e) { console.warn('Pushmelding aanvragen mislukt:', e); }
 }

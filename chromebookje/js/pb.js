@@ -101,7 +101,8 @@ export function createPB(env) {
     cq: { users: (v) => '(userA = ' + q(v) + ' || userB = ' + q(v) + ')' },
   };
   const ADAPTERS = [
-    { pat: 'usernames', pb: 'usernames', set: 'create', noOverwrite: true },
+    // een punt in een gebruikersnaam kan niet in een PocketBase-id: daar wordt het een streepje (een streepje is in een naam zelf niet toegestaan, dus omkeerbaar)
+    { pat: 'usernames', pb: 'usernames', set: 'create', noOverwrite: true, idOf: (S, fid) => String(fid).replace(/\./g, '-'), fid: (r) => String(r.id).replace(/-/g, '.') },
     { pat: 'users', pb: 'users', ts: ['usernameChangedAt', 'createdAt'], srv: ['usernameChangedAt', 'createdAt'],
       from: (d) => { if (!d.tier) d.tier = 'free'; }, to: (b) => { if (b.tier === 'free') b.tier = ''; } },
     { pat: 'settings', pb: 'settings' },
@@ -640,5 +641,5 @@ export function createPB(env) {
   }
 
   return { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove,
-    deleteField, Timestamp, runTransaction, login, logout, setToken: (t) => { token = t; }, PBError, _rt: RT, _autoId: autoId, _adapters: ADAPTERS };
+    deleteField, Timestamp, runTransaction, login, logout, setToken: (t) => { token = t; }, api: (method, path, body) => rawFetch(method, path, body), PBError, _rt: RT, _autoId: autoId, _adapters: ADAPTERS };
 }

@@ -1,5 +1,5 @@
 import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=0.37';
-import { BACKEND, pbLogin, pbLogout } from './db.js?v=0.37';
+import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=0.37';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -3183,14 +3183,13 @@ const permText = () => !('Notification' in window) ? 'Je browser ondersteunt gee
 
 // Vraagt de push-dienst (Cloudflare Worker) een melding te sturen. Mislukt dit, dan merkt de gebruiker er niets van.
 async function pushPing(payload) {
-  if (BACKEND === 'pocketbase') return null;   // stap 10: de Worker moet eerst PocketBase lezen
   if (!PUSH_URL || !auth.currentUser) return null;
   try {
     const idt = await auth.currentUser.getIdToken();
     const r = await fetch(PUSH_URL.replace(/\/$/, '') + '/notify', {
       method: 'POST', keepalive: true,
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idt },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(BACKEND === 'pocketbase' ? { ...payload, backend: 'pocketbase' } : payload)   // stap 10: de Worker leest dan PocketBase
     });
     return await r.json().catch(() => null);
   } catch (e) { console.warn('Pushmelding aanvragen mislukt:', e); return null; }
@@ -5264,10 +5263,15 @@ async function deleteAccount(pass) {
   await reauth(pass);                     // verplicht: Firebase wil een recente login voor het verwijderen
   try { await presenceGoOffline(); } catch {}
   teardown();                             // luisteraars stoppen, anders schrijven ze nog naar je (bijna verwijderde) account
-  const gone = [doc(db, 'users', uid), doc(db, 'settings', uid), doc(db, 'presenceSettings', uid), doc(db, 'presence', uid), doc(db, 'presence', uid + '_m'), devRef(uid, DEV.id || deviceId())];
-  if (lower) gone.unshift(doc(db, 'usernames', lower));
-  for (const r of gone) { try { await deleteDoc(r); } catch (e) { console.warn('Verwijderen', r.path, e); } }
-  await deleteUser(user);                 // de Cloud Function ruimt daarna de rest op (berichten, vriendschappen, servers)
+  if (BACKEND === 'pocketbase') {         // stap 10: de server ruimt alles in één keer op (profiel, naam, instellingen, berichten, vriendschappen, servers)
+    const res = await pbDeleteAccount();
+    if (res && res.failed && res.failed.length) console.warn('Verwijderen: niet alles gelukt', res.failed);
+  } else {
+    const gone = [doc(db, 'users', uid), doc(db, 'settings', uid), doc(db, 'presenceSettings', uid), doc(db, 'presence', uid), doc(db, 'presence', uid + '_m'), devRef(uid, DEV.id || deviceId())];
+    if (lower) gone.unshift(doc(db, 'usernames', lower));
+    for (const r of gone) { try { await deleteDoc(r); } catch (e) { console.warn('Verwijderen', r.path, e); } }
+  }
+  await deleteUser(user);                 // Firestore: de Cloud Function ruimt daarna de rest op (berichten, vriendschappen, servers)
   toast('Je account is verwijderd.');
 }
 

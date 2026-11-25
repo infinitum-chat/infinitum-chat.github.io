@@ -33,6 +33,8 @@ export const collection = I.collection, doc = I.doc, getDoc = I.getDoc, getDocs 
 // na het inloggen met Firebase: een PocketBase-sessie openen (in Firestore-modus doet dit niets)
 export async function pbLogin(user) { if (pb) await pb.login((force) => user.getIdToken(!!force)); }
 export function pbLogout() { if (pb) pb.logout(); }
+// je eigen account en alles wat erbij hoort op de server verwijderen (PocketBase-modus; in Firestore doet een Cloud Function dat na het verwijderen van het inlogaccount)
+export async function pbDeleteAccount() { if (!pb) return null; return pb.api('POST', '/api/delete-account', { confirm: 'delete' }); }
 export function setBackend(name) {
   try { localStorage.setItem('infinitum.backend', name === 'pocketbase' ? 'pocketbase' : 'firestore'); } catch (_) { /* */ }
   location.reload();
