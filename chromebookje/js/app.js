@@ -1,5 +1,4 @@
 import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=0.37';
-import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=0.37';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -9,7 +8,7 @@ import {
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp, runTransaction
-} from './db.js?v=0.37';
+} from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
 
 import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=0.37';
 import { createStreakr } from './streakr.js?v=0.37';
@@ -226,7 +225,6 @@ function watch(name, q, next) {
 }
 
 function fbErr(e) {
-  if (e?.pb) return e.message;   // PocketBase: de server geeft zelf een Nederlandse uitleg
   const c = e?.code || '';
   if (c.includes('permission-denied')) return 'Firestore weigerde dit verzoek (permission-denied). Probeer het zo nog eens. Blijft dit gebeuren, controleer dan of de nieuwste firestore.rules zijn gepubliceerd.';
   if (c.includes('not-found')) return 'Je Firestore-database bestaat nog niet (not-found). Maak hem aan in de Firebase Console: Build → Firestore Database → Database maken.';
@@ -413,13 +411,12 @@ async function ensureProfile(user) {
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
     teardown();
-    pbLogout();
     $('#app').hidden = true; $('#auth').hidden = false;
     return;
   }
   if (S.started && S.me?.uid === user.uid) return;
   S.me = user;
-  try { await pbLogin(user); await ensureProfile(user); }   // stap 9: bij ?backend=pocketbase eerst een PocketBase-sessie openen
+  try { await ensureProfile(user); }
   catch (e) {
     console.error(e);
     $('#aErr').textContent = fbErr(e);
@@ -3189,7 +3186,7 @@ async function pushPing(payload) {
     const r = await fetch(PUSH_URL.replace(/\/$/, '') + '/notify', {
       method: 'POST', keepalive: true,
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idt },
-      body: JSON.stringify(BACKEND === 'pocketbase' ? { ...payload, backend: 'pocketbase' } : payload)   // stap 10: de Worker leest dan PocketBase
+      body: JSON.stringify(payload)
     });
     return await r.json().catch(() => null);
   } catch (e) { console.warn('Pushmelding aanvragen mislukt:', e); return null; }
@@ -5263,15 +5260,10 @@ async function deleteAccount(pass) {
   await reauth(pass);                     // verplicht: Firebase wil een recente login voor het verwijderen
   try { await presenceGoOffline(); } catch {}
   teardown();                             // luisteraars stoppen, anders schrijven ze nog naar je (bijna verwijderde) account
-  if (BACKEND === 'pocketbase') {         // stap 10: de server ruimt alles in één keer op (profiel, naam, instellingen, berichten, vriendschappen, servers)
-    const res = await pbDeleteAccount();
-    if (res && res.failed && res.failed.length) console.warn('Verwijderen: niet alles gelukt', res.failed);
-  } else {
-    const gone = [doc(db, 'users', uid), doc(db, 'settings', uid), doc(db, 'presenceSettings', uid), doc(db, 'presence', uid), doc(db, 'presence', uid + '_m'), devRef(uid, DEV.id || deviceId())];
-    if (lower) gone.unshift(doc(db, 'usernames', lower));
-    for (const r of gone) { try { await deleteDoc(r); } catch (e) { console.warn('Verwijderen', r.path, e); } }
-  }
-  await deleteUser(user);                 // Firestore: de Cloud Function ruimt daarna de rest op (berichten, vriendschappen, servers)
+  const gone = [doc(db, 'users', uid), doc(db, 'settings', uid), doc(db, 'presenceSettings', uid), doc(db, 'presence', uid), doc(db, 'presence', uid + '_m'), devRef(uid, DEV.id || deviceId())];
+  if (lower) gone.unshift(doc(db, 'usernames', lower));
+  for (const r of gone) { try { await deleteDoc(r); } catch (e) { console.warn('Verwijderen', r.path, e); } }
+  await deleteUser(user);                 // de Cloud Function ruimt daarna de rest op (berichten, vriendschappen, servers)
   toast('Je account is verwijderd.');
 }
 

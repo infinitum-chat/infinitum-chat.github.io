@@ -15,7 +15,12 @@
    Zonder deze gegevens werkt bellen nog wel (met alleen STUN), maar lukt het niet op elk netwerk.
    Muziekstatus via Last.fm (v0.36):
      LASTFM_KEY     (Secret)  je Last.fm API-key (https://www.last.fm/api/account/create); zonder deze key werkt de muziekstatus niet.
-   Muziek ook als Infinitum dicht is (v0.36): gebruikt dezelfde Cron Trigger (elke minuut) als de spraakkanalen, zie README bij v0.36.  */
+   Muziek ook als Infinitum dicht is (v0.36): gebruikt dezelfde Cron Trigger (elke minuut) als de spraakkanalen, zie README bij v0.36.
+   PocketBase (stap 10): dezelfde Worker kan ook de gegevens uit PocketBase lezen in plaats van uit Firestore. De app zegt per aanvraag welke database ze gebruikt
+   (veld backend: 'pocketbase'); zonder dat veld werkt alles precies als voorheen met Firestore. Extra instellingen, alleen nodig voor PocketBase:
+     PB_URL            (Text)    https://infinitum-db.tail15ab2e.ts.net
+     PB_ADMIN_EMAIL    (Text)    het e-mailadres van je PocketBase-beheerder (superuser)
+     PB_ADMIN_PASSWORD (Secret)  het wachtwoord van die beheerder  */
 
 const FS = 'https://firestore.googleapis.com/v1';
 const RECENT_MS = 5 * 60 * 1000;   // alleen documenten van de laatste 5 minuten (tegen herhaald afspelen)
@@ -116,6 +121,7 @@ function fromFields(f) { const o = {}; for (const [k, v] of Object.entries(f || 
 
 // meerdere documenten in één aanvraag lezen; geeft { pad: data | null }
 async function getDocs(env, paths) {
+  if (isPB(env)) return pbGetDocs(env, paths);
   const r = await gFetch(env, `${FS}/projects/${pid(env)}/databases/(default)/documents:batchGet`, {
     method: 'POST', body: JSON.stringify({ documents: paths.map(p => docName(env, p)) })
   });
@@ -144,6 +150,7 @@ async function writeDocs(env, docs) {
 }
 
 async function getTokens(env, uids) {
+  if (isPB(env)) return pbGetTokens(env, uids);
   const value = uids.length === 1 ? { stringValue: uids[0] } : { arrayValue: { values: uids.map(u => ({ stringValue: u })) } };
   const r = await gFetch(env, `${FS}/projects/${pid(env)}/databases/(default)/documents:runQuery`, {
     method: 'POST',
@@ -158,6 +165,92 @@ async function getTokens(env, uids) {
     ua: String(fromFs(x.document.fields && x.document.fields.ua) || '')
   }));
 }
+
+/* ---------- PocketBase (stap 10) ----------
+   Dezelfde gegevens als hierboven, maar uit PocketBase. De Worker meldt zich aan als beheerder (superuser) en leest met zo weinig mogelijk aanvragen
+   (het gratis plan staat 50 externe aanvragen per keer toe): documenten van dezelfde soort gaan samen in één lijstaanvraag. De gegevens worden teruggegeven in
+   dezelfde vorm als bij Firestore (tijden in milliseconden, `users`, `from` en `to` zoals voorheen), zodat de rest van de Worker niet hoeft te veranderen. */
+const isPB = (env) => env.BACKEND === 'pocketbase';
+const pbBase = (env) => String(env.PB_URL || '').replace(/\/+$/, '');
+let pbTok = { value: '', exp: 0, key: '' };   // het token hoort bij deze instellingen; veranderen ze, dan wordt opnieuw ingelogd
+let pbLoginP = null;   // een inlogpoging die al loopt: parallelle aanvragen wachten daarop in plaats van allemaal opnieuw in te loggen
+async function pbToken(env, force) {
+  const now = Date.now();
+  const key = [env.PB_URL, env.PB_ADMIN_EMAIL, env.PB_ADMIN_PASSWORD].join('|');
+  if (!force && pbTok.value && pbTok.exp > now && pbTok.key === key) return pbTok.value;
+  if (!env.PB_URL || !env.PB_ADMIN_EMAIL || !env.PB_ADMIN_PASSWORD) throw new Error('PB_URL, PB_ADMIN_EMAIL en PB_ADMIN_PASSWORD ontbreken in de Worker');
+  if (pbLoginP && pbLoginP.key === key) return pbLoginP.p;
+  const p = (async () => {
+    const r = await fetch(pbBase(env) + '/api/collections/_superusers/auth-with-password', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity: env.PB_ADMIN_EMAIL, password: env.PB_ADMIN_PASSWORD }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.token) throw new Error('inloggen bij PocketBase mislukt (' + r.status + '): ' + String(j.message || '').slice(0, 120));
+    pbTok = { value: j.token, exp: Date.now() + 50 * 60 * 1000, key };
+    return pbTok.value;
+  })();
+  pbLoginP = { key, p };
+  try { return await p; } finally { if (pbLoginP && pbLoginP.p === p) pbLoginP = null; }
+}
+async function pbFetch(env, path, init = {}, retried) {
+  const t = await pbToken(env, !!retried);
+  const r = await fetch(pbBase(env) + path, { ...init, headers: { Authorization: t, 'Content-Type': 'application/json' } });
+  if (r.status === 401 && !retried) return pbFetch(env, path, init, true);
+  return r;
+}
+const pbMs = (s) => { const x = Date.parse(String(s || '').replace(' ', 'T')); return isNaN(x) ? 0 : x; };
+const pbQ = (v) => '"' + String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+// welke Firestore-paden bij welke PocketBase-collectie horen, en welke velden een datum zijn
+const PB_DATES = { dmMessages: ['createdAt', 'editedAt'], channelMessages: ['createdAt', 'editedAt'], channels: ['createdAt'], servers: ['createdAt'], friendships: ['createdAt'], snaps: ['createdAt', 'openedAt'],
+  notifications: ['createdAt'], subscriptions: ['requestedAt', 'decidedAt'], calls: ['createdAt'], presence: ['lastSeen'], liveness: ['pcAt', 'phAt'], users: ['createdAt', 'usernameChangedAt'] };
+const PB_PATHS = [
+  { re: /^chats\/([^/]+)\/messages\/([^/]+)$/, coll: 'dmMessages', id: (m) => m[2], ok: (r, m) => r.chat === m[1] },
+  { re: /^servers\/([^/]+)\/messages\/([^/]+)$/, coll: 'channelMessages', id: (m) => m[2], ok: (r, m) => r.chan === m[1] + '_general' },
+  { re: /^servers\/([^/]+)\/channels\/([^/]+)\/messages\/([^/]+)$/, coll: 'channelMessages', id: (m) => m[3], ok: (r, m) => r.chan === m[1] + '_' + m[2] },
+  { re: /^servers\/([^/]+)\/channels\/([^/]+)$/, coll: 'channels', id: (m) => m[1] + '_' + m[2] },
+  { re: /^servers\/([^/]+)$/, coll: 'servers', id: (m) => m[1] },
+  { re: /^(badges|settings|presenceSettings|presence|liveness|subscriptions|notifications|calls|users|friendships|snaps)\/([^/]+)$/, coll: (m) => m[1], id: (m) => m[2] },
+];
+function pbShape(coll, r) {
+  const d = {};
+  for (const k of Object.keys(r)) if (k !== 'collectionId' && k !== 'collectionName' && k !== 'expand' && k !== 'id') d[k] = r[k];
+  for (const k of PB_DATES[coll] || []) d[k] = typeof d[k] === 'string' && d[k] ? pbMs(d[k]) : null;
+  if (coll === 'friendships') { d.users = [d.userA, d.userB]; delete d.userA; delete d.userB; }
+  if (coll === 'snaps') { d.from = d.fromUid; d.to = d.toUid; delete d.fromUid; delete d.toUid; }
+  if (coll === 'channelMessages' || coll === 'dmMessages') { delete d.chan; delete d.chat; delete d.server; }
+  if (coll === 'channels') { delete d.server; delete d.viewAll; delete d.readKeys; }
+  if (coll === 'servers') delete d.memberKeys;
+  return d;
+}
+// geeft { pad: data | null }; documenten van dezelfde collectie worden in één aanvraag opgehaald
+async function pbGetDocs(env, paths) {
+  const want = {};   // collectie -> [{ path, id, ok, m }]
+  const out = {};
+  for (const p of paths) {
+    out[p] = null;
+    for (const t of PB_PATHS) {
+      const m = t.re.exec(p); if (!m) continue;
+      const coll = typeof t.coll === 'function' ? t.coll(m) : t.coll;
+      (want[coll] = want[coll] || []).push({ path: p, id: t.id(m), ok: t.ok ? (r) => t.ok(r, m) : null });
+      break;
+    }
+  }
+  await Promise.all(Object.entries(want).map(async ([coll, list]) => {
+    const ids = [...new Set(list.map((x) => x.id))];
+    const filter = ids.map((i) => 'id = ' + pbQ(i)).join(' || ');
+    const r = await pbFetch(env, '/api/collections/' + coll + '/records?perPage=' + Math.min(200, ids.length) + '&skipTotal=1&filter=' + encodeURIComponent(filter));
+    if (!r.ok) throw new Error('PocketBase lezen mislukt (' + coll + ', ' + r.status + '): ' + (await r.text()).slice(0, 160));
+    const by = {}; for (const rec of ((await r.json()).items || [])) by[rec.id] = rec;
+    for (const x of list) { const rec = by[x.id]; if (rec && (!x.ok || x.ok(rec))) out[x.path] = pbShape(coll, rec); }
+  }));
+  return out;
+}
+async function pbGetTokens(env, uids) {
+  const filter = uids.map((u) => 'uid = ' + pbQ(u)).join(' || ');
+  const r = await pbFetch(env, '/api/collections/pushTokens/records?perPage=200&skipTotal=1&filter=' + encodeURIComponent(filter));
+  if (!r.ok) throw new Error('tokens zoeken mislukt (' + r.status + '): ' + (await r.text()).slice(0, 200));
+  return ((await r.json()).items || []).map((x) => ({ name: x.id, token: String(x.token || ''), uid: x.uid, ua: String(x.ua || '') })).filter((t) => t.token);
+}
+const pbDeleteToken = (env, t) => pbFetch(env, '/api/collections/pushTokens/records/' + encodeURIComponent(t.name), { method: 'DELETE' });
 
 /* ---------- melding plannen en versturen ---------- */
 // kind: 'dm' | 'server' | 'mention' | 'channel' | 'requests' (zelfde namen als de meldingsinstellingen in de app)
@@ -227,7 +320,7 @@ async function sendPlan(env, plan, label) {
   console.log(`Push (${label}): ${good}/${res.length} gelukt`);
   // alleen tokens die echt niet meer bestaan worden verwijderd
   const dead = bad.filter(x => x.r.code === 'UNREGISTERED' || x.r.code === 'NOT_FOUND').slice(0, 5);
-  await Promise.all(dead.map(x => gFetch(env, `${FS}/${x.t.name}`, { method: 'DELETE' }).catch(() => {})));
+  await Promise.all(dead.map(x => (isPB(env) ? pbDeleteToken(env, x.t) : gFetch(env, `${FS}/${x.t.name}`, { method: 'DELETE' })).catch(() => {})));
   return { sent: good, failed: bad.length };
 }
 
@@ -653,6 +746,7 @@ const typed = (v) => typeof v === 'string' ? { stringValue: v } : typeof v === '
   : v && typeof v === 'object' ? { mapValue: { fields: Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => [k, typed(x)])) } } : { nullValue: null };
 // documenten lezen mét hun updateTime (voor de voorwaarde bij het schrijven); { pad: { d, ut } | null }
 async function getDocsT(env, paths) {
+  if (isPB(env)) { const d = await pbGetDocs(env, paths), out = {}; for (const p of paths) out[p] = d[p] ? { d: d[p], ut: null } : null; return out; }
   const r = await gFetch(env, `${FS}/projects/${pid(env)}/databases/(default)/documents:batchGet`, { method: 'POST', body: JSON.stringify({ documents: paths.map(p => docName(env, p)) }) });
   if (!r.ok) throw new Error('Firestore lezen mislukt (' + r.status + '): ' + (await r.text()).slice(0, 200));
   const by = {};
@@ -663,6 +757,11 @@ async function getDocsT(env, paths) {
 }
 // alleen `activity` en `music` van een profiel bijwerken; zonder `activity` in `fields` wordt het veld gewist. Mislukt (iemand was net eerder) = overslaan.
 async function putMusic(env, uid, ut, fields) {
+  if (isPB(env)) {   // PocketBase kent geen voorwaarde op het tijdstip; we lezen vlak van tevoren, dus de kans op een botsing met de app is klein
+    const r = await pbFetch(env, '/api/collections/users/records/' + encodeURIComponent(uid), { method: 'PATCH', body: JSON.stringify({ activity: fields.activity || null, music: fields.music || null }) });
+    if (!r.ok) throw new Error('profiel schrijven mislukt (' + r.status + '): ' + (await r.text()).slice(0, 200));
+    return true;
+  }
   const r = await gFetch(env, `${FS}/projects/${pid(env)}/databases/(default)/documents:commit`, { method: 'POST', body: JSON.stringify({ writes: [{
     update: { name: docName(env, 'users/' + uid), fields: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, typed(v)])) },
     updateMask: { fieldPaths: ['activity', 'music'] },
@@ -677,11 +776,19 @@ async function pollMusic(env, event) {
   const slot = Math.floor((event && event.scheduledTime ? event.scheduledTime : Date.now()) / 60000);
   if (slot % BG_EVERY_MIN !== 0) return 0;
   if (!env.LASTFM_KEY) { console.log('[muziek] LASTFM_KEY ontbreekt in de Worker: er wordt niets gedaan'); return 0; }
-  const q = await gFetch(env, `${FS}/projects/${pid(env)}/databases/(default)/documents:runQuery`, { method: 'POST', body: JSON.stringify({ structuredQuery: {
-    from: [{ collectionId: 'settings' }],
-    where: { fieldFilter: { field: { fieldPath: 'lastfm.bg' }, op: 'EQUAL', value: { booleanValue: true } } }, limit: 200 } }) });
-  if (!q.ok) throw new Error('instellingen zoeken mislukt (' + q.status + '): ' + (await q.text()).slice(0, 200));
-  const all = (await q.json()).filter(x => x.document).map(x => ({ uid: x.document.name.split('/').pop(), lfm: (fromFields(x.document.fields).lastfm) || {} }))
+  let rows;
+  if (isPB(env)) {
+    const q = await pbFetch(env, '/api/collections/settings/records?perPage=200&skipTotal=1&filter=' + encodeURIComponent('lastfm.bg = true'));
+    if (!q.ok) throw new Error('instellingen zoeken mislukt (' + q.status + '): ' + (await q.text()).slice(0, 200));
+    rows = ((await q.json()).items || []).map(x => ({ uid: x.id, lfm: x.lastfm || {} }));
+  } else {
+    const q = await gFetch(env, `${FS}/projects/${pid(env)}/databases/(default)/documents:runQuery`, { method: 'POST', body: JSON.stringify({ structuredQuery: {
+      from: [{ collectionId: 'settings' }],
+      where: { fieldFilter: { field: { fieldPath: 'lastfm.bg' }, op: 'EQUAL', value: { booleanValue: true } } }, limit: 200 } }) });
+    if (!q.ok) throw new Error('instellingen zoeken mislukt (' + q.status + '): ' + (await q.text()).slice(0, 200));
+    rows = (await q.json()).filter(x => x.document).map(x => ({ uid: x.document.name.split('/').pop(), lfm: (fromFields(x.document.fields).lastfm) || {} }));
+  }
+  const all = rows
     .filter(x => x.lfm.bg === true && x.lfm.show !== false && LFM_RE.test(String(x.lfm.user || ''))).sort((a, b) => a.uid < b.uid ? -1 : 1);
   console.log('[muziek] gevonden met schakelaar aan: ' + all.length);
   if (!all.length) return 0;
@@ -1056,6 +1163,7 @@ async function adminExternal(env, B) {
     catch (e) { out.auth = { ok: false, reason: e.message }; }
   })();
   const fsu = (async () => {
+    if (isPB(env)) { out.firestore = { ok: false, reason: 'Je gebruikt PocketBase; Firestore-gebruik is hier niet van belang.' }; return; }
     try {
       const now = new Date(), since = pacificMidnight(now), secs = Math.max(60, Math.ceil((now.getTime() - since) / 1000));
       const one = async (metric) => {
@@ -1139,11 +1247,11 @@ async function maintOrphans(env, B, dry) {
 }
 
 /* ---- ingang ---- */
-let modCache = { exp: 0, set: new Set() };
+let modCache = { exp: 0, set: new Set(), pb: false };
 async function modSet(env) {
-  if (modCache.exp > Date.now()) return modCache.set;
+  if (modCache.exp > Date.now() && modCache.pb === isPB(env)) return modCache.set;   // stap 10b: Firestore en PocketBase hebben elk hun eigen lijst
   const d = await getDocs(env, ['badges/moderator', 'badges/admin']);
-  modCache = { exp: Date.now() + 60000, set: new Set([...((d['badges/moderator'] || {}).users || []), ...((d['badges/admin'] || {}).users || [])]) };
+  modCache = { pb: isPB(env), exp: Date.now() + 60000, set: new Set([...((d['badges/moderator'] || {}).users || []), ...((d['badges/admin'] || {}).users || [])]) };
   return modCache.set;
 }
 async function adminApi(env, uid, b) {
@@ -1191,13 +1299,97 @@ async function adminApi(env, uid, b) {
   }
 }
 
+
+/* ---------- beheer met PocketBase (stap 10b) ----------
+   Dezelfde aanvragen als hierboven (plan, run, usage, external, maint), maar het tellen en wissen gebeurt in PocketBase zelf
+   (pb_hooks/lib/admin10b.js, routes /api/admin-*): daar kost het geen externe aanvragen en past alles in één keer.
+   De Worker controleert dat de aanvrager moderator is, wist de foto's (Cloudinary, R2) en het Firebase-inlogaccount. */
+async function pbAdmin(env, route, body) {
+  const r = await pbFetch(env, '/api/' + route, { method: 'POST', body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error('PocketBase ' + route + ' (' + r.status + '): ' + String(j.message || '').slice(0, 200));
+  return j;
+}
+function taskOkPB(t) {
+  if (!t || typeof t !== 'object') return 'ongeldige taak';
+  if (t.kind === 'pb') return /^[a-z0-9]{2,12}$/.test(t.step || '') ? '' : 'ongeldige taak (stap)';
+  if (t.kind === 'r2' || t.kind === 'auth') return '';
+  return 'onbekende taak';
+}
+async function adminApiPB(env, uid, b) {
+  const mods = await modSet(env);
+  if (!mods.has(uid)) return bad('Alleen moderators mogen dit.', 403);
+  const B = mkB();
+  try {
+    switch (b.action) {
+      case 'plan': {
+        const target = idOk(b.uid);
+        if (!target) return bad('Ongeldig account.');
+        if (target === uid) return bad('Je kunt je eigen account hier niet verwijderen (doe dat via Instellingen).', 403);
+        if (mods.has(target)) return bad('Dit account is een moderator. Haal eerst de moderator-badge weg.', 403);
+        const p = await pbAdmin(env, 'admin-plan', { uid: target });
+        const tasks = p.tasks.map((t) => ({ ...t, kind: 'pb', step: t.id }));
+        let n = tasks.length;
+        const prf = tasks.findIndex((t) => t.step === 'prf');   // foto's op de Worker (R2) vóór het profiel; het inlogaccount helemaal als laatste
+        const extra = []; if (env.MEDIA) extra.push({ id: 't' + n++, cat: 'misc', label: 'Foto’s op de Worker (R2)', kind: 'r2' });
+        tasks.splice(prf < 0 ? tasks.length : prf, 0, ...extra);
+        tasks.push({ id: 't' + n++, cat: 'auth', label: 'Inlogaccount', kind: 'auth' });
+        return { ok: true, user: p.user, ownedServers: p.ownedServers, skippedServers: p.skippedServers, media: { cloudinary: cldOn(env) }, tasks };
+      }
+      case 'run': {
+        const target = idOk(b.uid), mode = b.mode === 'delete' ? 'delete' : 'count';
+        if (!target || target === uid || mods.has(target)) return bad('Dit account kan niet worden beheerd.', 403);
+        const results = [];
+        for (const t of (Array.isArray(b.tasks) ? b.tasks.slice(0, 30) : [])) {
+          const id = String(t && t.id || ''), why = taskOkPB(t);
+          if (why) { results.push({ id, error: why }); continue; }
+          if (B.left < 2) { results.push({ id, skipped: true }); continue; }
+          const P = { n: 0 }, M = { cld: 0, r2: 0, failed: 0, skipped: 0 };
+          try {
+            if (t.kind === 'pb') {
+              const r = await pbAdmin(env, 'admin-run', { uid: target, step: t.step, mode });
+              P.n = r.n || 0;
+              if (mode === 'delete' && (r.media || []).length) await dropMedia(env, B, r.media, M);   // de gegevens zijn dan al weg; een foto die niet lukt telt als mislukt
+              results.push({ id, n: P.n, more: false, media: M });
+            } else {
+              const r = await runTask(env, B, target, mode, t, P, M);
+              results.push({ id, n: P.n, more: !!r.more, media: M });
+            }
+          } catch (e) {
+            if (e.budget) results.push(mode === 'count' ? { id, skipped: true } : { id, n: P.n, more: true, media: M });
+            else { console.error('Beheertaak mislukt', t.kind, e); results.push({ id, error: e.message }); }
+          }
+        }
+        return { ok: true, results };
+      }
+      case 'usage': return { ok: true, counts: (await pbAdmin(env, 'admin-count', { colls: b.colls, groups: b.groups })).counts };
+      case 'external': return await adminExternal(env, B);
+      case 'maint': {
+        if (b.task !== 'orphans') return await pbAdmin(env, 'admin-maint', { task: b.task, days: b.days, dry: b.dry });
+        const a = await authList(env, B, 5);
+        if (a.more) return bad('Er zijn te veel inlogaccounts om weesdocumenten veilig te herkennen.', 409);
+        if (!a.users.length) return bad('De lijst met inlogaccounts is leeg; daarom wordt er niets verwijderd.', 409);
+        return await pbAdmin(env, 'admin-maint', { task: 'orphans', dry: b.dry, have: a.users.map((x) => x.u) });
+      }
+    }
+    return bad('onbekende actie');
+  } catch (e) {
+    if (e.budget) return { ok: false, reason: 'Te veel in één keer; probeer het opnieuw.', status: 503 };
+    throw e;
+  }
+}
+
 const json = (obj, status, cors) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json', ...cors } });
 
 export default {
   // Cron Trigger (elke minuut): achtergebleven spraakdeelnemers opruimen, en (elke 2 min) de muziekstatus van wie die ook op de achtergrond wil
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(sweepVoice(env).catch(e => console.error('Spraak opruimen mislukt', e)));
-    ctx.waitUntil(pollMusic(env, event).catch(e => console.error('Muziek op de achtergrond mislukt', e)));   // v0.36
+    // Firestore (alleen als de servicesleutel is ingesteld). Bij PocketBase ruimt PocketBase de spraakkanalen zelf op (stap 10).
+    if (env.SERVICE_ACCOUNT) {
+      ctx.waitUntil(sweepVoice(env).catch(e => console.error('Spraak opruimen mislukt', e)));
+      ctx.waitUntil(pollMusic(env, event).catch(e => console.error('Muziek op de achtergrond mislukt', e)));   // v0.36
+    }
+    if (env.PB_URL) ctx.waitUntil(pollMusic({ ...env, BACKEND: 'pocketbase' }, event).catch(e => console.error('Muziek op de achtergrond (PocketBase) mislukt', e)));
   },
   async fetch(req, env, ctx) {
     const cors = corsHeaders(req, env);
@@ -1223,7 +1415,9 @@ export default {
 
     if (url.pathname === '/admin') {   // v0.37: beheer (alleen moderators), zie adminApi
       let b; try { b = await req.json(); } catch { return json({ ok: false, reason: 'ongeldige aanvraag' }, 400, cors); }
-      try { const res = await adminApi(env, uid, b || {}); return json(res, res.ok === false ? (res.status || 400) : 200, cors); }
+      if (b && b.backend === 'pocketbase' && !env.PB_URL) return json({ ok: false, reason: 'PocketBase is niet ingesteld in de Worker (PB_URL, PB_ADMIN_EMAIL, PB_ADMIN_PASSWORD).' }, 503, cors);
+      if (b && b.backend === 'pocketbase') env = { ...env, BACKEND: 'pocketbase' };   // stap 10b
+      try { const res = isPB(env) ? await adminApiPB(env, uid, b || {}) : await adminApi(env, uid, b || {}); return json(res, res.ok === false ? (res.status || 400) : 200, cors); }
       catch (e) { console.error('Beheer fout', e); return json({ ok: false, reason: 'Serverfout: ' + e.message }, 500, cors); }
     }
 
@@ -1234,6 +1428,10 @@ export default {
 
     let body;
     try { body = await req.json(); } catch { return json({ ok: false, reason: 'ongeldige aanvraag' }, 400, cors); }
+    if (body && body.backend === 'pocketbase') {   // stap 10: de app gebruikt PocketBase
+      if (!env.PB_URL) return json({ ok: false, reason: 'PocketBase is niet ingesteld in de Worker (PB_URL, PB_ADMIN_EMAIL, PB_ADMIN_PASSWORD).' }, 503, cors);
+      env = { ...env, BACKEND: 'pocketbase' };
+    }
 
     try {
       const res = await handle(env, ctx, uid, body || {});

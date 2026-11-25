@@ -12,7 +12,7 @@ import { db } from './firebase.js?v=0.37';
 import {
   collection, doc, getDocs, onSnapshot, query, where, orderBy, limit,
   updateDoc, setDoc, deleteDoc, writeBatch, runTransaction, serverTimestamp
-} from './db.js?v=0.37';
+} from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
 
 const FLAME = 'assets/streakr-flame.svg';
 const TZ = 'Europe/Amsterdam';

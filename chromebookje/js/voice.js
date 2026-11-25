@@ -22,7 +22,7 @@ import { attachVolume, volumeSlider } from './volume.js?v=0.37';
 import { openMic } from './audio-fx.js?v=0.37';
 import {
   collection, doc, setDoc, updateDoc, deleteDoc, getDocs, onSnapshot, query, where, serverTimestamp
-} from './db.js?v=0.37';
+} from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
 
 const STALE_MS = 100000;       // geen hartslag zo lang = weg
 const BEAT_MS = 40000;         // hartslag

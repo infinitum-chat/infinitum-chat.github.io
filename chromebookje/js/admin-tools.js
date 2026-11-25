@@ -5,7 +5,6 @@
    - Opslag           (aantal documenten per collectie, Firebase- en Cloudinary-gebruik, opruimacties, losse inlogaccounts)
    Het wissen en het gebruik lezen gaat via de Cloudflare Worker (POST /admin): alleen de Worker heeft de rechten om een
    inlogaccount te verwijderen en om overal in Firestore te zoeken. Zie worker.js en README (v0.37). */
-const PBMODE = () => { try { return localStorage.getItem('infinitum.backend') === 'pocketbase'; } catch { return false; } };   // stap 10: de Worker moet weten welke database je gebruikt
 
 const ico = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 export const ADM_IC = {
@@ -71,7 +70,7 @@ export function createAdminTools(D) {
     if (!base) throw new Error('PUSH_URL in js/firebase.js is leeg: dit gaat via je Cloudflare Worker.');
     const tok = await auth.currentUser.getIdToken();
     let r;
-    try { r = await fetch(base + '/admin', { method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify(PBMODE() ? { ...body, backend: 'pocketbase' } : body) }); }
+    try { r = await fetch(base + '/admin', { method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
     catch { throw new Error('De Worker is niet bereikbaar. Controleer je internetverbinding en PUSH_URL.'); }
     const j = await r.json().catch(() => null);
     if (r.status === 404 && (!j || j.reason === 'niet gevonden')) throw Object.assign(new Error('Je Worker kent dit nog niet. Plak de nieuwe worker.js in Cloudflare (Workers → jouw Worker → Edit code) en klik op Deploy.'), { fatal: true });

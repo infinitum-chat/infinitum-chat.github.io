@@ -442,3 +442,8 @@ Cosmetische valuta (zoals Orbs bij Discord), zonder functievoordeel. In deze sta
 - **Zijbalk** bij Sparks: Quests, Shop, Leaderboard, Inventory (voorlopig lege pagina's met een titel).
 - **Opslag**: Firestore `sparks/<uid>` = `{ sparks_balance (begint op 0, nooit onder 0), quests_completed (teller), last_online_at }`. Het document wordt bij het inloggen aangemaakt; `last_online_at` wordt hooguit elke 10 min en bij uitloggen bijgewerkt.
 - **Eenmalig**: publiceer de nieuwe `firestore.rules` (`firebase deploy --only firestore:rules`). Wil je ook dat het account wissen de Sparks meeneemt: `firebase deploy --only functions` en plak de nieuwe `worker.js` in Cloudflare. De app werkt ook zonder; Sparks-opslag werkt pas na de regels.
+
+## PocketBase stap 10b erin gezet (op v0.37, Sparks stap 1)
+- `test/worker.js` is vervangen door de Worker uit PocketBase stap 10b. Die bevat alles uit v0.37 (Sparks, muziek op de achtergrond) plus de PocketBase-routes; zonder `backend: 'pocketbase'` in de aanvraag werkt alles nog precies als met Firestore.
+- Nieuwe map naast `test/`: `pocketbase-stap10b/` met `pb_hooks/` (naar `~/pocketbase/pb_hooks/` op je server), `tests/` en `LEESMIJ.md` (installatie en live-test). Deze map hoort **niet** op GitHub Pages; zet alleen de inhoud van `test/` online.
+- De app (`js/`) is niet aangepast: de PocketBase-kant van de app komt uit de eerdere PocketBase-stappen (1 t/m 10a).
