@@ -2,7 +2,8 @@ import { auth, db, googleProvider, PUSH_URL } from './firebase.js?v=0.12';
 import {
   onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, signOut
 } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js';
-import { collection, doc, getDoc, getDocs, deleteDoc, onSnapshot, writeBatch, serverTimestamp } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
+import { BACKEND, pbLogin } from './db.js?v=0.37';
+import { collection, doc, getDoc, getDocs, deleteDoc, onSnapshot, writeBatch, serverTimestamp } from './db.js?v=0.37';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -14,7 +15,7 @@ async function pushPing(payload) {
     await fetch(PUSH_URL.replace(/\/$/, '') + '/notify', {
       method: 'POST', keepalive: true,
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idt },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(BACKEND === 'pocketbase' ? { ...payload, backend: 'pocketbase' } : payload)   // stap 10: de Worker leest dan PocketBase
     });
   } catch (e) { console.warn('Pushmelding aanvragen mislukt:', e); }
 }
@@ -292,6 +293,7 @@ onAuthStateChanged(auth, async (user) => {
   if (!user) { show('stLogin'); return; }
   show('stLoad');
   try {
+    await pbLogin(user);   // stap 9: bij ?backend=pocketbase eerst een PocketBase-sessie openen
     await loadData(user.uid);
     if (!profile) { show('stNoProfile'); return; }
     $('#whoName').textContent = profile.username || '';
