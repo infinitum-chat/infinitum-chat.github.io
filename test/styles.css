@@ -2368,3 +2368,28 @@ a.ghost.sm { color: var(--text); }
 .intro-close { position: absolute; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 4px 24px rgba(0, 0, 0, .5); }
 .intro-lbl { display: grid; gap: 4px; margin: 10px 0; }
 .intro-acts { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
+
+/* ---------- v1.0.12: prestatiemodus (Instellingen -> Weergave -> Prestaties) ----------
+   html[data-perf="1"] = zo weinig mogelijk animaties en zware effecten, voor trage apparaten.
+   Wordt per apparaat bewaard (localStorage), dus je pc kan mooi blijven terwijl je oude telefoon licht draait. */
+html[data-perf="1"] *:not(.stk-bar), html[data-perf="1"] *::before, html[data-perf="1"] *::after {
+  animation: none !important; transition: none !important; scroll-behavior: auto !important;
+}
+/* geen wazige glasvlakken: die kosten de meeste kracht. Daarom iets vollere achtergronden, zodat tekst leesbaar blijft */
+html[data-perf="1"] *, html[data-perf="1"] *::before, html[data-perf="1"] *::after,
+html[data-perf="1"] dialog::backdrop {
+  backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+}
+html[data-perf="1"] { --panel: rgba(10, 14, 36, .94); }
+html[data-perf="1"][data-theme="light"] { --panel: rgba(255, 255, 255, .96); }
+html[data-perf="1"] .panel { box-shadow: none; }
+html[data-perf="1"] .glow::after, html[data-perf="1"] .tab.active::before { display: none; }   /* bewegende gloed/schaduw onder knoppen */
+html[data-perf="1"] .toast, html[data-perf="1"] .mn-pop, html[data-perf="1"] .em-pop, html[data-perf="1"] .em-sug { box-shadow: none; }
+/* achtergrond: een rustige kleurverloop in plaats van een zware SVG (tot 150 KB, steeds opnieuw getekend) */
+html[data-perf="1"] body::after {
+  background: radial-gradient(120% 90% at 50% 0%, #1a1f4d 0%, #0a0e24 55%, #050816 100%) !important;
+}
+html[data-perf="1"][data-theme="light"] body::after {
+  background: radial-gradient(120% 90% at 50% 0%, #ffffff 0%, #e6e9ff 60%, #d8dcf7 100%) !important;
+}
+html[data-perf="1"][data-bg="custom"] body::after { background: var(--bg-custom) center / cover no-repeat !important; }

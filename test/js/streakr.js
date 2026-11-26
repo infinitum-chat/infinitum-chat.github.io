@@ -8,11 +8,11 @@
    - snaps/{id}          { from, to, pair, name, createdAt, src 'cld'|'data', img, w, h, secs, views, state 'new'|'opened'|'gone', openedAt }
    - streakUsers/{uid}   { used }  = hoeveel herstellers je (Prime) al gebruikte
    Een "dag" is een kalenderdag in Nederlandse tijd (Europe/Amsterdam). */
-import { db } from './firebase.js?v=1.0.11';
+import { db } from './firebase.js?v=1.0.12';
 import {
   collection, doc, getDocs, onSnapshot, query, where, orderBy, limit,
   updateDoc, setDoc, deleteDoc, writeBatch, runTransaction, serverTimestamp, BACKEND, pbCall
-} from './db.js?v=1.0.11';
+} from './db.js?v=1.0.12';
 
 const FLAME = 'assets/streakr-flame.svg';
 const TZ = 'Europe/Amsterdam';

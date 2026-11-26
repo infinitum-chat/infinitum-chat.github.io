@@ -1,5 +1,5 @@
-import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.11';
-import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.11';
+import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.12';
+import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.12';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -9,17 +9,17 @@ import {
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp, runTransaction
-} from './db.js?v=1.0.11';
+} from './db.js?v=1.0.12';
 
-import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.11';
-import { createStreakr } from './streakr.js?v=1.0.11';
-import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.11';
-import { createLastfm } from './lastfm.js?v=1.0.11';
-import './fs-idle.js?v=1.0.11';
-import { createCalls } from './call.js?v=1.0.11';
-import { createVoice, VIC } from './voice.js?v=1.0.11';
-import { buildVoiceSettings } from './audio-settings.js?v=1.0.11';
-import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.11';
+import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.12';
+import { createStreakr } from './streakr.js?v=1.0.12';
+import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.12';
+import { createLastfm } from './lastfm.js?v=1.0.12';
+import './fs-idle.js?v=1.0.12';
+import { createCalls } from './call.js?v=1.0.12';
+import { createVoice, VIC } from './voice.js?v=1.0.12';
+import { buildVoiceSettings } from './audio-settings.js?v=1.0.12';
+import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.12';
 
 const APP_VERSION = 'v1.0';
 // telefoon of tablet? Niet alleen op de aanwijzer vertrouwen: sommige Samsung-telefoons (en geïnstalleerde apps) melden hover/fine pointer
@@ -3112,6 +3112,22 @@ function applyAppearance() {
 }
 lightMq.addEventListener?.('change', () => { if (CFG.theme === 'system') applyAppearance(); });
 
+/* --- prestatiemodus (v1.0.12) ---
+   Per apparaat, dus bewust NIET in Firestore/PocketBase: een trage telefoon mag licht draaien terwijl je pc mooi blijft.
+   'auto' = aan bij weinig geheugen/processorkernen, databesparing of "minder beweging" in het systeem. */
+const PERF_KEY = 'infinitum-perf';
+const perfPref = () => { try { const v = localStorage.getItem(PERF_KEY); return v === 'on' || v === 'off' ? v : 'auto'; } catch { return 'auto'; } };
+function perfSlow() {
+  const cn = navigator.connection || {};
+  return !!cn.saveData || matchMedia('(prefers-reduced-motion: reduce)').matches ||
+    !!(navigator.deviceMemory && navigator.deviceMemory <= 4) || !!(navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
+}
+const perfOn = () => { const p = perfPref(); return p === 'on' || (p === 'auto' && perfSlow()); };
+function applyPerf() { document.documentElement.dataset.perf = perfOn() ? '1' : ''; }
+function setPerfPref(v) { try { v === 'auto' ? localStorage.removeItem(PERF_KEY) : localStorage.setItem(PERF_KEY, v); } catch {} applyPerf(); }
+matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', applyPerf);
+applyPerf();
+
 $('#settingsBtn').innerHTML = I.gear;
 $('#settingsBtn').addEventListener('click', () => {
   // in de instellingen? Dan terug naar waar je was (tabblad + open gesprek blijven bewaard)
@@ -3394,6 +3410,18 @@ function renderSettings() {
     onclick: () => { CFG.theme = k; saveSet(); applyAppearance(); mark(); }
   }, h('span', { class: 'opt-ic', html: ic }), t));
 
+  // prestaties (v1.0.12): per apparaat, niet in je account
+  const PERFS = [['auto', 'Automatisch'], ['on', 'Aan'], ['off', 'Uit']];
+  const perfNote = h('p', { class: 'hint' });
+  const markPerf = () => {
+    perfBtns.forEach((el, i) => el.classList.toggle('active', PERFS[i][0] === perfPref()));
+    perfNote.textContent = perfPref() === 'auto'
+      ? (perfSlow() ? 'Je apparaat lijkt wat trager: de lichte modus staat nu automatisch aan.' : 'Je apparaat lijkt snel genoeg: alle animaties staan aan.')
+      : perfPref() === 'on' ? 'Lichte modus aan: geen animaties, geen wazige vlakken en een eenvoudige achtergrond.' : 'Lichte modus uit: alle animaties en effecten staan aan.';
+  };
+  const perfBtns = PERFS.map(([k, t]) => h('button', { class: 'opt', type: 'button', onclick: () => { setPerfPref(k); markPerf(); } }, t));
+  markPerf();
+
   // de gratis achtergronden (+ je eigen upload, als je die hebt), met daaronder "meer" en "uploaden"
   const bgGrid = h('div', { class: 'bg-grid' });
   const bgActs = h('div', { class: 'bg-acts' });
@@ -3491,7 +3519,12 @@ function renderSettings() {
     empty,
     sec('weergave', 'Weergave',
       item('thema donker licht systeem uiterlijk', true, h('p', { class: 'set-lbl', text: 'Thema' }), h('div', { class: 'opts' }, themeBtns)),
-      item('achtergrond eigen upload plus prime meer ' + BGS.map(b => b.name).join(' '), true, h('p', { class: 'set-lbl', text: 'Achtergrond' }), bgGrid, bgNote, bgActs)),
+      item('achtergrond eigen upload plus prime meer ' + BGS.map(b => b.name).join(' '), true, h('p', { class: 'set-lbl', text: 'Achtergrond' }), bgGrid, bgNote, bgActs),
+      item('prestaties licht modus animaties trage apparaten snelheid performance batterij besparen minder beweging', true,
+        h('p', { class: 'set-lbl', text: 'Prestaties (lichte modus)' }),
+        h('div', { class: 'opts' }, perfBtns),
+        perfNote,
+        h('p', { class: 'hint', text: 'Alleen voor dit apparaat. Zet animaties, wazige vlakken en de zware achtergrond uit zodat de site soepeler loopt.' }))),
     sec('profielen', 'Profielen',
       item('profiel foto zijbalk', false, profTog),
       item('profiel foto banner bio links tip', false, h('p', { class: 'hint', text: 'Tip: klik op je profielfoto linksboven om je foto, banner, bio en links aan te passen.' }))),
@@ -3537,7 +3570,7 @@ function renderSettings() {
 
 /* --- instellingen: zijbalk (categorieën + zoeken + credits) --- */
 const SET_SECS = [
-  { id: 'weergave', title: 'Weergave', ic: I.palette, d: 'Thema en achtergrond' },
+  { id: 'weergave', title: 'Weergave', ic: I.palette, d: 'Thema, achtergrond en prestaties' },
   { id: 'profielen', title: 'Profielen', ic: I.user, d: 'Profielfoto in de zijbalk' },
   { id: 'muziek', title: 'Muziekstatus', ic: I.music, d: 'Last.fm: Spotify, Apple Music en YouTube' },
   { id: 'account', title: 'Account', ic: I.user, d: 'E-mail, wachtwoord en verwijderen' },
