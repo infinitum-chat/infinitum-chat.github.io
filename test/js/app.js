@@ -1,5 +1,5 @@
-import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.7';
-import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.7';
+import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.8';
+import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.8';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -9,17 +9,17 @@ import {
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp, runTransaction
-} from './db.js?v=1.0.7';
+} from './db.js?v=1.0.8';
 
-import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.7';
-import { createStreakr } from './streakr.js?v=1.0.7';
-import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.7';
-import { createLastfm } from './lastfm.js?v=1.0.7';
-import './fs-idle.js?v=1.0.7';
-import { createCalls } from './call.js?v=1.0.7';
-import { createVoice, VIC } from './voice.js?v=1.0.7';
-import { buildVoiceSettings } from './audio-settings.js?v=1.0.7';
-import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.7';
+import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.8';
+import { createStreakr } from './streakr.js?v=1.0.8';
+import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.8';
+import { createLastfm } from './lastfm.js?v=1.0.8';
+import './fs-idle.js?v=1.0.8';
+import { createCalls } from './call.js?v=1.0.8';
+import { createVoice, VIC } from './voice.js?v=1.0.8';
+import { buildVoiceSettings } from './audio-settings.js?v=1.0.8';
+import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.8';
 
 const APP_VERSION = 'v1.0';
 // telefoon of tablet? Niet alleen op de aanwijzer vertrouwen: sommige Samsung-telefoons (en geïnstalleerde apps) melden hover/fine pointer
@@ -5838,11 +5838,12 @@ function openIntro(url, preview) {
   const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   const frame = h('iframe', { class: 'intro-frame', src: url, title: 'Welkomstvideo', allow: 'autoplay; fullscreen; encrypted-media', allowfullscreen: '', referrerpolicy: 'no-referrer', sandbox: 'allow-scripts allow-same-origin allow-popups allow-presentation' });
-  const btn = h('button', { class: 'glow intro-close', type: 'button', text: preview ? 'Sluiten' : 'Doorgaan naar Infinitum', onclick: close });
-  const wrap = h('div', { class: 'intro-wrap', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Welkomstvideo' }, frame, btn);
+  // Bij de echte welkomstvideo (geen voorbeeld) staat er geen knop van Infinitum bovenop; alleen in het voorbeeld (admin) blijft 'Sluiten'.
+  const btn = preview ? h('button', { class: 'glow intro-close', type: 'button', text: 'Sluiten', onclick: close }) : null;
+  const wrap = h('div', { class: 'intro-wrap', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Welkomstvideo' }, ...(btn ? [frame, btn] : [frame]));
   document.addEventListener('keydown', onKey);
   document.body.append(wrap);
-  btn.focus();
+  if (btn) btn.focus(); else frame.focus();
 }
 async function introCheck() {
   if (INTRO.shown || INTRO.waiting) return;

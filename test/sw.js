@@ -1,8 +1,8 @@
 /* Infinitum service worker: offline-start, cache en pushmeldingen (werkt ook als de app dicht is) */
-const VERSION = 'infinitum-v1.0-pb17';
+const VERSION = 'infinitum-v1.0-pb18';
 const SHELL = [
-  './', 'index.html', 'upgrade.html', 'styles.css?v=1.0.7',
-  'js/app.js?v=1.0.7', 'js/firebase.js?v=1.0.7', 'js/db.js?v=1.0.7', 'js/pb.js?v=1.0.7', 'js/legal.js?v=1.0.7', 'js/admin-tools.js?v=1.0.7', 'js/streakr.js?v=1.0.7', 'js/lastfm.js?v=1.0.7', 'js/call.js?v=1.0.7', 'js/pip.js?v=1.0.7', 'js/fs-idle.js?v=1.0.7', 'js/fs.js?v=1.0.7', 'js/share-quality.js?v=1.0.7', 'js/voice.js?v=1.0.7', 'js/volume.js?v=1.0.7', 'js/audio-fx.js?v=1.0.7', 'js/audio-settings.js?v=1.0.7', 'js/fx/gate-worklet.js?v=1.0.7', 'js/fx/rnnoise-worklet.js?v=1.0.7', 'js/fx/rnnoise.wasm?v=1.0.7', 'js/fx/rnnoise_simd.wasm?v=1.0.7', 'js/emoji.js?v=1.0.7', 'js/emoji-data.js?v=1.0.7', 'js/upgrade.js?v=8',
+  './', 'index.html', 'upgrade.html', 'styles.css?v=1.0.8',
+  'js/app.js?v=1.0.8', 'js/firebase.js?v=1.0.8', 'js/db.js?v=1.0.8', 'js/pb.js?v=1.0.8', 'js/legal.js?v=1.0.8', 'js/admin-tools.js?v=1.0.8', 'js/streakr.js?v=1.0.8', 'js/lastfm.js?v=1.0.8', 'js/call.js?v=1.0.8', 'js/pip.js?v=1.0.8', 'js/fs-idle.js?v=1.0.8', 'js/fs.js?v=1.0.8', 'js/share-quality.js?v=1.0.8', 'js/voice.js?v=1.0.8', 'js/volume.js?v=1.0.8', 'js/audio-fx.js?v=1.0.8', 'js/audio-settings.js?v=1.0.8', 'js/fx/gate-worklet.js?v=1.0.8', 'js/fx/rnnoise-worklet.js?v=1.0.8', 'js/fx/rnnoise.wasm?v=1.0.8', 'js/fx/rnnoise_simd.wasm?v=1.0.8', 'js/emoji.js?v=1.0.8', 'js/emoji-data.js?v=1.0.8', 'js/upgrade.js?v=8',
   'manifest.webmanifest',
   'assets/favicon.svg', 'assets/favicon-plus.svg', 'assets/favicon-prime.svg',
   'assets/streakr-flame.svg', 'assets/infinitum-logo.svg', 'assets/infinitum-logo-plus.svg', 'assets/infinitum-logo-prime.svg', 'assets/logo-dark.svg',
