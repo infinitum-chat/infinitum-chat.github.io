@@ -1,22 +1,21 @@
 /* De database-laag van Infinitum (stap 9): één plek die kiest of de app met Firestore of met PocketBase praat.
    Alle bestanden importeren de Firestore-functies (collection, doc, getDoc, onSnapshot, writeBatch, ...) vanaf hier in plaats van van Google.
-   - Standaard: Firestore (alles werkt precies zoals voorheen; dit bestand geeft de echte Firestore-functies door).
+   - Standaard (v1.0): PocketBase. Alleen ?backend=firestore in de adresbalk geeft die ene pagina Firestore (niet onthouden).
    - PocketBase: open de app één keer met  ?backend=pocketbase  (wordt onthouden in deze browser). Terug naar Firestore:  ?backend=firestore .
    De vertaling naar PocketBase staat in js/pb.js. Inloggen blijft Firebase Auth; pbLogin() wisselt het Firebase-token om voor een PocketBase-sessie. */
 
 import * as FS from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
-import { createPB } from './pb.js?v=1.0';
+import { createPB } from './pb.js?v=1.0.5';
 
 // het adres van je PocketBase (via Tailscale Funnel)
 const PB_URL = 'https://infinitum-db.tail15ab2e.ts.net';
 
-try {
-  const want = new URLSearchParams(location.search).get('backend');
-  if (want === 'pocketbase' || want === 'firestore') localStorage.setItem('infinitum.backend', want);
-} catch (_) { /* geen opslag: dan blijft het Firestore */ }
-let chosen = 'firestore';
-try { if (localStorage.getItem('infinitum.backend') === 'pocketbase' && PB_URL) chosen = 'pocketbase'; } catch (_) { /* */ }
+// v1.0: altijd PocketBase. Alleen als de adresbalk ?backend=firestore bevat, gebruikt die ene pagina Firestore (wordt NIET onthouden).
+let chosen = PB_URL ? 'pocketbase' : 'firestore';
+try { if (new URLSearchParams(location.search).get('backend') === 'firestore') chosen = 'firestore'; } catch (_) { /* */ }
+try { localStorage.removeItem('infinitum.backend'); localStorage.removeItem('infinitum.backend.v1'); } catch (_) { /* oude keuzes opruimen */ }
 export const BACKEND = chosen;
+console.info('[Infinitum] build pb15 · database kiest:', chosen, '· adres:', location.search || '(geen ?backend)');
 
 const hex = (buf) => Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
 const pb = BACKEND === 'pocketbase'
@@ -38,6 +37,6 @@ export async function pbDeleteAccount() { if (!pb) return null; return pb.api('P
 // v0.1: een route op de PocketBase-server aanroepen (alleen in PocketBase-modus; bijv. /api/admin-streak voor moderators)
 export async function pbCall(path, body) { if (!pb) throw new Error('Geen PocketBase.'); return pb.api('POST', path, body); }
 export function setBackend(name) {
-  try { localStorage.setItem('infinitum.backend', name === 'pocketbase' ? 'pocketbase' : 'firestore'); } catch (_) { /* */ }
-  location.reload();
+  const u = new URL(location.href); if (name === 'firestore') u.searchParams.set('backend', 'firestore'); else u.searchParams.delete('backend');
+  location.href = u.toString();
 }
