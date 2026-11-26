@@ -2361,3 +2361,10 @@ a.ghost.sm { color: var(--text); }
 .stk-edit-acts { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
 .stk-numlab { display: grid; gap: 3px; }
 .stk-num { width: 110px; }
+
+/* =====================  v1.0: welkomstvideo  ===================== */
+.intro-wrap { position: fixed; inset: 0; z-index: 10000; background: #05060d; display: flex; flex-direction: column; }
+.intro-frame { flex: 1 1 auto; width: 100%; border: 0; background: #05060d; }
+.intro-close { position: absolute; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 4px 24px rgba(0, 0, 0, .5); }
+.intro-lbl { display: grid; gap: 4px; margin: 10px 0; }
+.intro-acts { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }

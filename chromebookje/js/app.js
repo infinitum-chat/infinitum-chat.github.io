@@ -1,5 +1,5 @@
-import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.5';
-import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.5';
+import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.11';
+import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.11';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -9,17 +9,17 @@ import {
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp, runTransaction
-} from './db.js?v=1.0.5';
+} from './db.js?v=1.0.11';
 
-import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.5';
-import { createStreakr } from './streakr.js?v=1.0.5';
-import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.5';
-import { createLastfm } from './lastfm.js?v=1.0.5';
-import './fs-idle.js?v=1.0.5';
-import { createCalls } from './call.js?v=1.0.5';
-import { createVoice, VIC } from './voice.js?v=1.0.5';
-import { buildVoiceSettings } from './audio-settings.js?v=1.0.5';
-import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.5';
+import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.11';
+import { createStreakr } from './streakr.js?v=1.0.11';
+import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.11';
+import { createLastfm } from './lastfm.js?v=1.0.11';
+import './fs-idle.js?v=1.0.11';
+import { createCalls } from './call.js?v=1.0.11';
+import { createVoice, VIC } from './voice.js?v=1.0.11';
+import { buildVoiceSettings } from './audio-settings.js?v=1.0.11';
+import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.11';
 
 const APP_VERSION = 'v1.0';
 // telefoon of tablet? Niet alleen op de aanwijzer vertrouwen: sommige Samsung-telefoons (en geïnstalleerde apps) melden hover/fine pointer
@@ -511,6 +511,7 @@ function startListeners() {
     if (s.exists()) Object.assign(PLANCFG, s.data());
     plansView?.render();
   }, () => {});
+  introCheck();   // v1.0: welkomstvideo (als je hem nog niet zag); werkt de eerste keer ook zonder inloggen
   // Sparks-schakelaar: config/sparks { modOnly } (standaard true = alleen moderators; false = iedereen)
   S.unsub.sparksCfg = onSnapshot(doc(db, 'config', 'sparks'), s => {
     SPK.modOnly = s.exists() ? s.data().modOnly !== false : true;
@@ -3789,9 +3790,17 @@ async function openCropper(file, outW, outH, { round = false, maxLen = 140000, t
 const BADGES = [];
 const BADGE_ICONS = ['shield', 'calendar', 'star'];
 const dateFmt = new Intl.DateTimeFormat('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' });
+// v1.0: de drie automatische badges werken ook als hun definitie niet in de database staat (bijv. niet meegekomen naar PocketBase).
+// Staat er wel een definitie in `badges`, dan wint die (naam, kleur, icoon, volgorde).
+const AUTO_BADGES = [
+  { id: 'memberSince', auto: 'memberSince', name: 'Lid sinds', description: 'De dag waarop dit account is gemaakt', color: '#4aa8ff', icon: 'calendar', order: 90 },
+  { id: 'plus', auto: 'plus', name: 'Infinitum+', description: 'Heeft Infinitum+', color: '#f5b942', icon: 'star', order: 91 },
+  { id: 'prime', auto: 'prime', name: 'Infinitum Prime', description: 'Heeft Infinitum Prime', color: '#b07cff', icon: 'star', order: 92 }
+];
+const badgeDefs = () => [...BADGES, ...AUTO_BADGES.filter(d => !BADGES.some(b => b.id === d.id || b.auto === d.auto))];
 function badgeChips(uid, prof) {
   const out = [];
-  const list = [...BADGES].sort((a, b) => (Number(a.order) || 99) - (Number(b.order) || 99) || String(a.name).localeCompare(String(b.name)));
+  const list = badgeDefs().sort((a, b) => (Number(a.order) || 99) - (Number(b.order) || 99) || String(a.name).localeCompare(String(b.name)));
   for (const b of list) {
     let extra = '';
     const tierAuto = ['plus', 'prime'].includes(b.auto) ? b.auto : ['plus', 'prime'].includes(b.id) ? b.id : '';
@@ -5615,9 +5624,10 @@ const ADM_SECS = [
   { id: 'mod', title: 'Moderatie', d: 'Waarschuwingen, time-outs, bans en spam', ic: I.shield, sub: 'Waarschuw mensen anoniem bij verdacht gedrag. Gaat het daarna weer mis, dan volgt een tijdelijke time-out en daarna een ban. De gebruiker ziet de reden in zijn meldingen, maar nooit welke moderator het deed. Onderaan staat het logboek van de automatische spamdetectie.' },
   { id: 'reports', title: 'Rapporten', d: 'Gemelde berichten en gebruikers', ic: I.flag, sub: 'Meldingen van gebruikers over berichten en personen. Reageer onderling, zet erbij wat je ermee gaat doen, modereer de persoon (waarschuwing, time-out, ban) en rond de melding af. De melder krijgt dan een anonieme melding; de gemelde persoon ziet nooit wie meldde.' },
   { id: 'legal', title: 'Voorwaarden', d: 'Voorwaarden, privacy en huisregels', ic: I.lock, sub: 'Pas de teksten aan die gebruikers zien bij het inloggen en in de instellingen. De datum bovenaan wordt bij het opslaan automatisch bijgewerkt.' },
-  { id: 'storage', title: 'Opslag', d: 'Gebruik, opruimen en beheer', ic: ADM_IC.db, sub: 'Wat Firebase en Cloudinary gebruiken, wat er in de database staat, en opruimen met één klik. Accounts wis je bij Mensen.' },
-  { id: 'streakr', title: 'Streakr', d: 'Streaks aanpassen en foto’s', ic: I.image, sub: 'Pas het aantal dagen van iemands streak aan of herstel een afgelopen streak (ook na 3 dagen). Daaronder kies je of streakrs van iedereen via Cloudinary (goede kwaliteit) of via Firestore (lage kwaliteit) worden verstuurd.' },
+  { id: 'storage', title: 'Opslag', d: 'Gebruik, opruimen en beheer', ic: ADM_IC.db, sub: BACKEND === 'pocketbase' ? 'Hoe groot PocketBase is, wat er in de database staat, wat Cloudinary gebruikt, en opruimen met één klik. Accounts wis je bij Mensen.' : 'Wat Firebase en Cloudinary gebruiken, wat er in de database staat, en opruimen met één klik. Accounts wis je bij Mensen.' },
+  { id: 'streakr', title: 'Streakr', d: 'Streaks aanpassen en foto’s', ic: I.image, sub: 'Pas het aantal dagen van iemands streak aan of herstel een afgelopen streak (ook na 3 dagen). Daaronder kies je of streakrs van iedereen via Cloudinary (goede kwaliteit) of via ' + (BACKEND === 'pocketbase' ? 'PocketBase' : 'Firestore') + ' (lage kwaliteit) worden verstuurd.' },
   { id: 'sparks', title: 'Sparks', d: 'Wie het Sparks-tabblad ziet', ic: ADM_IC.spark, sub: 'Kies of het Sparks-tabblad voor alle gebruikers zichtbaar is, of alleen voor moderators.' },
+  { id: 'intro', title: 'Video', d: 'Welkomstvideo voor nieuwe bezoekers', ic: I.image, sub: 'Een video of pagina die iedereen één keer ziet als hij voor het eerst op Infinitum komt. Zet hem aan of uit en pas de link aan: bij een nieuwe link zien mensen hem opnieuw.' },
   { id: 'table', title: 'Tabel', d: 'Functies per versie', ic: I.check, sub: 'Welke functie bij welk abonnement hoort.' }
 ];
 const fmtWhen = (t) => { const d = t?.toDate?.(); return d ? `${dayLabel(d)} ${tf.format(d)}` : ''; };
@@ -5759,7 +5769,7 @@ function renderAdmin() {
 
   const inField = () => body.contains(document.activeElement) && document.activeElement !== search && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   const render = () => {
-    if (sec.id === 'table' || sec.id === 'legal' || sec.id === 'streakr' || sec.id === 'sparks') return;
+    if (sec.id === 'table' || sec.id === 'legal' || sec.id === 'streakr' || sec.id === 'sparks' || sec.id === 'intro') return;
     if (sec.id === 'storage') { if (SUBS.ready) ADMT.paintStorage?.(); return; }
     if (sec.id === 'overview') { ADMT.paintOverview(); return; }
     if (sec.id === 'mod') { MODV.paint?.(); return; }
@@ -5780,6 +5790,7 @@ function renderAdmin() {
   else if (sec.id === 'reports') body.append(buildReportsPanel());
   else if (sec.id === 'streakr') body.append(STK.buildAdmin());
   else if (sec.id === 'sparks') body.append(buildSparksAdmin());
+  else if (sec.id === 'intro') body.append(buildIntroAdmin());
   else body.append(buildFeatureEditor(() => renderAdmin()));
 
   if (sec.id !== 'reports') stopRptPanel();
@@ -5814,8 +5825,85 @@ function openPlans() {
 }
 $('#premiumBtn').addEventListener('click', openPlans);
 
+/* =====================  Welkomstvideo (v1.0)  =====================
+   config/intro = { enabled, url, rev }. Is hij aan en heb je (url + rev) nog niet gezien, dan krijg je de video één keer te zien.
+   Nieuwe link of "Opnieuw tonen" (rev + 1) in Admin -> Video: iedereen ziet hem weer. Wat je zag staat in localStorage (per browser). */
+const INTRO_KEY = 'infinitum-intro-seen';
+const INTRO = { shown: false, waiting: false };
+const introUrlOk = (u) => /^https:\/\/[^\s"'<>]{4,290}$/.test(String(u || ''));
+const introTag = (c) => `${c.url}#${Math.max(0, Math.floor(Number(c.rev) || 0))}`;
+const introSeen = () => { try { return localStorage.getItem(INTRO_KEY) || ''; } catch { return ''; } };
+function openIntro(url, preview) {
+  document.querySelector('.intro-wrap')?.remove();
+  const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const frame = h('iframe', { class: 'intro-frame', src: url, title: 'Welkomstvideo', allow: 'autoplay; fullscreen; encrypted-media', allowfullscreen: '', referrerpolicy: 'no-referrer', sandbox: 'allow-scripts allow-same-origin allow-popups allow-presentation' });
+  // Bij de echte welkomstvideo (geen voorbeeld) staat er geen knop van Infinitum bovenop; alleen in het voorbeeld (admin) blijft 'Sluiten'.
+  const btn = preview ? h('button', { class: 'glow intro-close', type: 'button', text: 'Sluiten', onclick: close }) : null;
+  const wrap = h('div', { class: 'intro-wrap', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Welkomstvideo' }, ...(btn ? [frame, btn] : [frame]));
+  document.addEventListener('keydown', onKey);
+  document.body.append(wrap);
+  if (btn) btn.focus(); else frame.focus();
+}
+async function introCheck() {
+  if (INTRO.shown || INTRO.waiting) return;
+  let c = null;
+  try { const s = await getDoc(doc(db, 'config', 'intro')); c = s.exists() ? s.data() : null; } catch { return; }   // niet leesbaar zonder inloggen? Dan na het inloggen opnieuw
+  if (!c || c.enabled !== true || !introUrlOk(c.url) || introSeen() === introTag(c)) return;
+  INTRO.waiting = true;
+  const go = () => {   // eerst het cookievenster afhandelen
+    if (document.querySelector('.cookie-wrap')) { setTimeout(go, 700); return; }
+    INTRO.waiting = false; INTRO.shown = true;
+    try { localStorage.setItem(INTRO_KEY, introTag(c)); } catch {}
+    openIntro(c.url, false);
+  };
+  go();
+}
+function buildIntroAdmin() {
+  const box = h('div', { class: 'panel intro-adm' });
+  let cur = { enabled: false, url: '', rev: 0 }, saving = false, loaded = false;
+  const save = async (next, msg) => {
+    if (saving) return; saving = true; paint();
+    try {
+      await setDoc(doc(db, 'config', 'intro'), { enabled: next.enabled, url: next.url, rev: next.rev, updatedAt: serverTimestamp(), by: S.me.uid });
+      cur = next; toast(msg);
+    } catch (e) { toast(e?.code ? fbErr(e) : (e?.message || 'Opslaan mislukt.')); }
+    saving = false; paint();
+  };
+  const paint = () => {
+    const cb = h('input', { type: 'checkbox' }); cb.checked = cur.enabled; cb.disabled = saving || !loaded;
+    const url = h('input', { class: 'inp', type: 'url', maxlength: 290, placeholder: 'https://… (leeg laten = geen video)', autocomplete: 'off', 'aria-label': 'Link naar de video' }); url.value = cur.url; url.disabled = saving || !loaded;
+    const sub = h('small');
+    const subText = () => { sub.textContent = !url.value.trim() ? 'Geen link ingevuld: niemand krijgt een video te zien.' : cb.checked ? 'Aan (na opslaan): iedereen die hem nog niet zag, krijgt hem te zien.' : 'Uit: niemand krijgt de video te zien.'; };
+    cb.addEventListener('change', subText); url.addEventListener('input', subText); subText();
+    const bad = (u) => u !== '' && !introUrlOk(u);
+    const go = h('button', { class: 'glow', type: 'button', text: 'Opslaan', disabled: saving || !loaded });
+    go.onclick = () => {
+      const u = url.value.trim();
+      if (bad(u)) { toast('De link moet met https:// beginnen.'); return; }
+      // Geen link = geen video: dan staat hij ook uit, en niemand krijgt iets te zien.
+      const on = cb.checked && u !== '';
+      save({ enabled: on, url: u, rev: cur.rev }, !u ? 'Opgeslagen. Geen link: niemand krijgt een video.' : u !== cur.url && on ? 'Opgeslagen. Nieuwe link: iedereen ziet de video opnieuw.' : 'Opgeslagen.');
+    };
+    const prev = h('button', { class: 'ghost', type: 'button', text: 'Voorbeeld bekijken', onclick: () => { const u = url.value.trim(); if (!introUrlOk(u)) { toast('Vul eerst een geldige https-link in.'); return; } openIntro(u, true); } });
+    const again = h('button', { class: 'ghost', type: 'button', text: 'Opnieuw tonen aan iedereen', disabled: saving || !loaded || !cur.enabled || !introUrlOk(cur.url),
+      title: 'Iedereen die de video al zag, krijgt hem nog een keer', onclick: () => save({ ...cur, rev: cur.rev + 1 }, 'Klaar: iedereen ziet de video opnieuw.') });
+    box.replaceChildren(
+      h('p', { class: 'hint', text: 'Wie voor het eerst op Infinitum komt, ziet deze video één keer. Verander je de link, dan zien ook mensen die de vorige al zagen de nieuwe. Laat je de link leeg, dan krijgt niemand een video.' }),
+      h('label', { class: 'up-check rs-opt' }, cb, h('span', { class: 'item-text' }, h('b', { text: 'Video tonen aan nieuwe bezoekers' }), sub)),
+      h('label', { class: 'intro-lbl' }, h('small', { text: 'Link' }), url),
+      h('div', { class: 'intro-acts' }, go, prev, again),
+      h('p', { class: 'hint', text: 'Wat iemand al zag, wordt per browser onthouden. Wist iemand zijn browsergegevens, dan ziet hij de video weer.' }));
+  };
+  paint();
+  getDoc(doc(db, 'config', 'intro')).then(s => { if (s.exists()) { const d = s.data(); cur = { enabled: d.enabled === true, url: String(d.url || ''), rev: Math.max(0, Math.floor(Number(d.rev) || 0)) }; } loaded = true; paint(); })
+    .catch(() => { loaded = true; paint(); });
+  return box;
+}
+
 applyAppearance();
 setMode('login');
+introCheck();
 
 /* =====================  Admin-schermen (v0.37)  ===================== */
 const ADMT = createAdminTools({

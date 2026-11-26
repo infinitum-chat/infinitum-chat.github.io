@@ -2,7 +2,7 @@
    Het paneel bij Instellingen -> Spraak & geluid. Alle keuzes worden direct bewaard (per toestel) en gelden meteen in een lopend gesprek,
    op een paar na (zie `restartNote`). "Microfoon testen" opent je microfoon met precies deze instellingen en toont een meter, zodat je
    de gevoeligheid kunt afstellen voordat je belt. Het testgeluid blijft op je toestel. */
-import { loadFx, saveFx, openMic, fxSupport, fxInUse, fxPending, listMics, FX_DEFAULT } from './audio-fx.js?v=1.0.5';
+import { loadFx, saveFx, openMic, fxSupport, fxInUse, fxPending, listMics, FX_DEFAULT } from './audio-fx.js?v=1.0.11';
 
 export function buildVoiceSettings(h) {
   const sup = fxSupport();

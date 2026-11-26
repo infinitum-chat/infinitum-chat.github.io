@@ -831,6 +831,19 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // config/intro (v1.0): de welkomstvideo voor wie voor het eerst komt. Iedereen mag lezen (ook vóór het inloggen); alleen moderators schrijven (Admin -> Video).
+    match /config/intro {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['enabled', 'url', 'rev', 'updatedAt', 'by'])
+        && request.resource.data.enabled is bool
+        && request.resource.data.url is string && request.resource.data.url.size() <= 300
+        && (request.resource.data.url == '' || request.resource.data.url.matches('^https://[^ ]+$'))
+        && request.resource.data.rev is int && request.resource.data.rev >= 0
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+    }
+
     // config/streakr (v0.16): admins kiezen waar streakr-foto's heen gaan (Admin -> Streakr): 'cloudinary' (goede kwaliteit) of 'firestore' (lage kwaliteit)
     match /config/streakr {
       allow read: if signedIn();
