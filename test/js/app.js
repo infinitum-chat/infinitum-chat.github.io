@@ -1,5 +1,5 @@
-import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.8';
-import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.8';
+import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.9';
+import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.9';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -9,17 +9,17 @@ import {
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp, runTransaction
-} from './db.js?v=1.0.8';
+} from './db.js?v=1.0.9';
 
-import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.8';
-import { createStreakr } from './streakr.js?v=1.0.8';
-import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.8';
-import { createLastfm } from './lastfm.js?v=1.0.8';
-import './fs-idle.js?v=1.0.8';
-import { createCalls } from './call.js?v=1.0.8';
-import { createVoice, VIC } from './voice.js?v=1.0.8';
-import { buildVoiceSettings } from './audio-settings.js?v=1.0.8';
-import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.8';
+import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.9';
+import { createStreakr } from './streakr.js?v=1.0.9';
+import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.9';
+import { createLastfm } from './lastfm.js?v=1.0.9';
+import './fs-idle.js?v=1.0.9';
+import { createCalls } from './call.js?v=1.0.9';
+import { createVoice, VIC } from './voice.js?v=1.0.9';
+import { buildVoiceSettings } from './audio-settings.js?v=1.0.9';
+import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.9';
 
 const APP_VERSION = 'v1.0';
 // telefoon of tablet? Niet alleen op de aanwijzer vertrouwen: sommige Samsung-telefoons (en geïnstalleerde apps) melden hover/fine pointer
@@ -5872,23 +5872,24 @@ function buildIntroAdmin() {
   };
   const paint = () => {
     const cb = h('input', { type: 'checkbox' }); cb.checked = cur.enabled; cb.disabled = saving || !loaded;
-    const url = h('input', { class: 'inp', type: 'url', maxlength: 290, placeholder: 'https://…', autocomplete: 'off', 'aria-label': 'Link naar de video' }); url.value = cur.url; url.disabled = saving || !loaded;
+    const url = h('input', { class: 'inp', type: 'url', maxlength: 290, placeholder: 'https://… (leeg laten = geen video)', autocomplete: 'off', 'aria-label': 'Link naar de video' }); url.value = cur.url; url.disabled = saving || !loaded;
     const sub = h('small');
-    const subText = () => { sub.textContent = cb.checked ? 'Aan (na opslaan): iedereen die hem nog niet zag, krijgt hem te zien.' : 'Uit: niemand krijgt de video te zien.'; };
-    cb.addEventListener('change', subText); subText();
+    const subText = () => { sub.textContent = !url.value.trim() ? 'Geen link ingevuld: niemand krijgt een video te zien.' : cb.checked ? 'Aan (na opslaan): iedereen die hem nog niet zag, krijgt hem te zien.' : 'Uit: niemand krijgt de video te zien.'; };
+    cb.addEventListener('change', subText); url.addEventListener('input', subText); subText();
     const bad = (u) => u !== '' && !introUrlOk(u);
     const go = h('button', { class: 'glow', type: 'button', text: 'Opslaan', disabled: saving || !loaded });
     go.onclick = () => {
       const u = url.value.trim();
       if (bad(u)) { toast('De link moet met https:// beginnen.'); return; }
-      if (cb.checked && !u) { toast('Vul een link in om de video aan te zetten.'); return; }
-      save({ enabled: cb.checked, url: u, rev: cur.rev }, u !== cur.url && cb.checked ? 'Opgeslagen. Nieuwe link: iedereen ziet de video opnieuw.' : 'Opgeslagen.');
+      // Geen link = geen video: dan staat hij ook uit, en niemand krijgt iets te zien.
+      const on = cb.checked && u !== '';
+      save({ enabled: on, url: u, rev: cur.rev }, !u ? 'Opgeslagen. Geen link: niemand krijgt een video.' : u !== cur.url && on ? 'Opgeslagen. Nieuwe link: iedereen ziet de video opnieuw.' : 'Opgeslagen.');
     };
     const prev = h('button', { class: 'ghost', type: 'button', text: 'Voorbeeld bekijken', onclick: () => { const u = url.value.trim(); if (!introUrlOk(u)) { toast('Vul eerst een geldige https-link in.'); return; } openIntro(u, true); } });
     const again = h('button', { class: 'ghost', type: 'button', text: 'Opnieuw tonen aan iedereen', disabled: saving || !loaded || !cur.enabled || !introUrlOk(cur.url),
       title: 'Iedereen die de video al zag, krijgt hem nog een keer', onclick: () => save({ ...cur, rev: cur.rev + 1 }, 'Klaar: iedereen ziet de video opnieuw.') });
     box.replaceChildren(
-      h('p', { class: 'hint', text: 'Wie voor het eerst op Infinitum komt, ziet deze video één keer. Verander je de link, dan zien ook mensen die de vorige al zagen de nieuwe.' }),
+      h('p', { class: 'hint', text: 'Wie voor het eerst op Infinitum komt, ziet deze video één keer. Verander je de link, dan zien ook mensen die de vorige al zagen de nieuwe. Laat je de link leeg, dan krijgt niemand een video.' }),
       h('label', { class: 'up-check rs-opt' }, cb, h('span', { class: 'item-text' }, h('b', { text: 'Video tonen aan nieuwe bezoekers' }), sub)),
       h('label', { class: 'intro-lbl' }, h('small', { text: 'Link' }), url),
       h('div', { class: 'intro-acts' }, go, prev, again),

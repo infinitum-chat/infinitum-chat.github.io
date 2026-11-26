@@ -3,7 +3,7 @@
    Werkt voor het schermenblok (.vr-multi) en het losse gespreksscherm (.call-fsbox): alleen de klasse 'fs-idle' op het fullscreen-element
    wordt gezet, de rest regelt de CSS. */
 const IDLE_MS = 3000;
-import { fsElement } from './fs.js?v=1.0.8';
+import { fsElement } from './fs.js?v=1.0.9';
 let el = null, timer = 0, dragging = false, held = false;
 
 const isTarget = (e) => !!e && (e.classList.contains('vr-multi') || e.classList.contains('call-fsbox'));
