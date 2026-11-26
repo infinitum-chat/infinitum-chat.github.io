@@ -12,10 +12,10 @@ const PB_URL = 'https://infinitum-db.tail15ab2e.ts.net';
 
 try {
   const want = new URLSearchParams(location.search).get('backend');
-  if (want === 'pocketbase' || want === 'firestore') localStorage.setItem('infinitum.backend', want);
+  if (want === 'pocketbase' || want === 'firestore') localStorage.setItem('infinitum.backend.v1', want);
 } catch (_) { /* geen opslag: dan blijft het Firestore */ }
 let chosen = PB_URL ? 'pocketbase' : 'firestore';   // v1.0: standaard PocketBase; ?backend=firestore zet hem terug (wordt onthouden)
-try { if (localStorage.getItem('infinitum.backend') === 'firestore') chosen = 'firestore'; } catch (_) { /* */ }
+try { if (localStorage.getItem('infinitum.backend.v1') === 'firestore') chosen = 'firestore'; } catch (_) { /* */ }
 export const BACKEND = chosen;
 
 const hex = (buf) => Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -38,6 +38,6 @@ export async function pbDeleteAccount() { if (!pb) return null; return pb.api('P
 // v0.1: een route op de PocketBase-server aanroepen (alleen in PocketBase-modus; bijv. /api/admin-streak voor moderators)
 export async function pbCall(path, body) { if (!pb) throw new Error('Geen PocketBase.'); return pb.api('POST', path, body); }
 export function setBackend(name) {
-  try { localStorage.setItem('infinitum.backend', name === 'pocketbase' ? 'pocketbase' : 'firestore'); } catch (_) { /* */ }
+  try { localStorage.setItem('infinitum.backend.v1', name === 'pocketbase' ? 'pocketbase' : 'firestore'); } catch (_) { /* */ }
   location.reload();
 }

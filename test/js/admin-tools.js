@@ -5,7 +5,8 @@
    - Opslag           (aantal documenten per collectie, Firebase- en Cloudinary-gebruik, opruimacties, losse inlogaccounts)
    Het wissen en het gebruik lezen gaat via de Cloudflare Worker (POST /admin): alleen de Worker heeft de rechten om een
    inlogaccount te verwijderen en om overal in Firestore te zoeken. Zie worker.js en README (v0.37). */
-const PBMODE = () => { try { return localStorage.getItem('infinitum.backend') === 'pocketbase'; } catch { return false; } };   // stap 10: de Worker moet weten welke database je gebruikt
+import { BACKEND } from './db.js?v=1.0';
+const PBMODE = () => BACKEND === 'pocketbase';   // stap 10: de Worker moet weten welke database je gebruikt
 
 const ico = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 export const ADM_IC = {
