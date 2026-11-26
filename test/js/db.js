@@ -1,6 +1,6 @@
 /* De database-laag van Infinitum (stap 9): één plek die kiest of de app met Firestore of met PocketBase praat.
    Alle bestanden importeren de Firestore-functies (collection, doc, getDoc, onSnapshot, writeBatch, ...) vanaf hier in plaats van van Google.
-   - Standaard: Firestore (alles werkt precies zoals voorheen; dit bestand geeft de echte Firestore-functies door).
+   - Standaard (v1.0): PocketBase. Terug naar Firestore: ?backend=firestore (zie hieronder).
    - PocketBase: open de app één keer met  ?backend=pocketbase  (wordt onthouden in deze browser). Terug naar Firestore:  ?backend=firestore .
    De vertaling naar PocketBase staat in js/pb.js. Inloggen blijft Firebase Auth; pbLogin() wisselt het Firebase-token om voor een PocketBase-sessie. */
 
@@ -14,8 +14,8 @@ try {
   const want = new URLSearchParams(location.search).get('backend');
   if (want === 'pocketbase' || want === 'firestore') localStorage.setItem('infinitum.backend', want);
 } catch (_) { /* geen opslag: dan blijft het Firestore */ }
-let chosen = 'firestore';
-try { if (localStorage.getItem('infinitum.backend') === 'pocketbase' && PB_URL) chosen = 'pocketbase'; } catch (_) { /* */ }
+let chosen = PB_URL ? 'pocketbase' : 'firestore';   // v1.0: standaard PocketBase; ?backend=firestore zet hem terug (wordt onthouden)
+try { if (localStorage.getItem('infinitum.backend') === 'firestore') chosen = 'firestore'; } catch (_) { /* */ }
 export const BACKEND = chosen;
 
 const hex = (buf) => Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
