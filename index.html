@@ -63,6 +63,11 @@ h1 span {
 }
 p { margin: 0 0 22px; color: var(--muted); font-size: 15.5px; }
 
+.note { display: flex; gap: 12px; align-items: flex-start; text-align: left; margin: 0 0 24px; padding: 14px 16px;
+  background: rgba(255,255,255,.05); border: 1px solid var(--line); border-radius: var(--rb); }
+.note img { width: 28px; height: 28px; flex: none; margin-top: 1px; }
+.note b { display: block; color: var(--text); font-size: 15px; margin-bottom: 2px; }
+.note span { color: var(--muted); font-size: 14px; line-height: 1.45; }
 .glow {
   position: relative; top: 0; border: 2px solid transparent; border-radius: var(--rb);
   color: #0b0f1f; font: 700 14px/1 var(--font); padding: 13px 24px; cursor: pointer;
@@ -92,6 +97,7 @@ p { margin: 0 0 22px; color: var(--muted); font-size: 15.5px; }
     <span class="pill"><i></i> Even geduld</span>
     <h1>We bereiden de <span>release</span> voor!</h1>
     <p>De website is op dit moment niet beschikbaar. We zijn druk bezig om alles klaar te maken voor de lancering. Kom straks gezellig terug, het is de moeite waard!</p>
+    <div class="note"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA4MCIgZmlsbD0ibm9uZSI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9Im8iIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZmY1YTNjIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI2U4MzYyZiIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iaSIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZmQzNmIiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZhYjNkIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cGF0aCBkPSJNMzMgMmMyIDEyIDggMTcgMTUgMjYgNiA4IDEwIDE2IDEwIDI2IDAgMTQtMTEgMjUtMjYgMjVTNiA2OCA2IDU0YzAtOCAzLTE0IDgtMTkgMSA2IDMgOSA2IDExLTItMTQgMi0yNiAxMy00NHoiIGZpbGw9InVybCgjbykiLz4KICA8cGF0aCBkPSJNMzIgNDBjMSA3IDUgMTAgOSAxNSAzIDQgNSA4IDUgMTIgMCA3LTYgMTItMTQgMTJzLTE0LTUtMTQtMTJjMC01IDItOCA1LTExIDAgMyAxIDUgMyA2LTEtOSAxLTE2IDYtMjJ6IiBmaWxsPSJ1cmwoI2kpIi8+CiAgPHBhdGggZD0iTTMyIDU4YzEgNCA0IDYgNiA5IDEgMiAyIDQgMiA2IDAgNC0zIDYtOCA2cy04LTItOC02YzAtMyAxLTQgMy02IDAgMiAxIDMgMiAzLS41LTUgLjUtOCAzLTEyeiIgZmlsbD0iIzJhMTQ1MCIgb3BhY2l0eT0iLjkiLz4KPC9zdmc+Cg==" alt=""><div><b>Streakr kwijt? Geen paniek!</b><span>Gaat je streakr tijdens deze periode verloren, dan maakt dat niets uit. Alle streakrs worden hersteld. Je hoeft er niets voor te doen.</span></div></div>
     <button class="glow" type="button" onclick="location.reload()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Pagina vernieuwen
     </button>
