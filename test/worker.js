@@ -1362,7 +1362,7 @@ async function adminApiPB(env, uid, b) {
         }
         return { ok: true, results };
       }
-      case 'usage': return { ok: true, counts: (await pbAdmin(env, 'admin-count', { colls: b.colls, groups: b.groups })).counts };
+      case 'usage': { const r = await pbAdmin(env, 'admin-count', { colls: b.colls, groups: b.groups, size: b.size === true }); return { ok: true, counts: r.counts, size: r.size }; }   // pb20: size = echte grootte op de server (alleen als de app erom vraagt)
       case 'external': return await adminExternal(env, B);
       case 'maint': {
         if (b.task !== 'orphans') return await pbAdmin(env, 'admin-maint', { task: b.task, days: b.days, dry: b.dry });

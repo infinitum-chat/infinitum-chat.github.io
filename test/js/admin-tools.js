@@ -5,7 +5,7 @@
    - Opslag           (aantal documenten per collectie, Firebase- en Cloudinary-gebruik, opruimacties, losse inlogaccounts)
    Het wissen en het gebruik lezen gaat via de Cloudflare Worker (POST /admin): alleen de Worker heeft de rechten om een
    inlogaccount te verwijderen en om overal in Firestore te zoeken. Zie worker.js en README (v0.37). */
-import { BACKEND } from './db.js?v=1.0.9';
+import { BACKEND, PB_ADDR } from './db.js?v=1.0.10';
 const PBMODE = () => BACKEND === 'pocketbase';   // stap 10: de Worker moet weten welke database je gebruikt
 
 const ico = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
@@ -50,6 +50,27 @@ const COLLS = {
 const AVG = { users: 1800, usernames: 130, settings: 900, presence: 220, presenceSettings: 220, liveness: 120, readState: 320, pushTokens: 650, pushTests: 120, notifications: 450, subscriptions: 750,
   friendships: 280, snaps: 1500, streaks: 320, streakUsers: 90, blocks: 220, reports: 950, moderation: 320, modLog: 380, spamLocks: 220, spamLog: 950, calls: 3500, servers: 2300,
   badges: 420, sparks: 130, features: 950, legal: 9000, config: 320, '~messages': 400, '~channels': 650, '~devices': 380, '~typing': 130, '~reads': 160, '~voice': 260, '~sigs': 3500, '~notes': 380 };
+
+// v1.0 pb20: de echte collecties van PocketBase (geen ~groepen: elke collectie wordt apart geteld)
+const PB_COLLS = {
+  users: 'Profielen', usernames: 'Gebruikersnamen', settings: 'Instellingen', presence: 'Aanwezigheid', presenceSettings: 'Aanwezigheidsinstellingen', liveness: 'Levenstekens',
+  readState: 'Gelezen-status', pushTokens: 'Pushtokens', pushTests: 'Testmeldingen', notifications: 'Meldingen', subscriptions: 'Abonnementen', friendships: 'Vriendschappen',
+  chats: 'DM-gesprekken', dmMessages: 'DM-berichten', servers: 'Servers', channels: 'Kanalen', channelMessages: 'Serverberichten',
+  snaps: 'Streakrs', streaks: 'Streaks', streakUsers: 'Streak-herstellers', blocks: 'Blokkades', reports: 'Rapporten', reportNotes: 'Rapport-notities', moderation: 'Moderatiestand',
+  modLog: 'Moderatielogboek', spamLocks: 'Spamblokkades', spamLog: 'Spam-logboek', calls: 'Oproepen', sigs: 'Belsignalen', devices: 'Apparaten',
+  dmTyping: 'Typ-indicators (DM)', channelTyping: 'Typ-indicators (servers)', dmReads: 'Leesmarkeringen (DM)', channelReads: 'Leesmarkeringen (servers)', voice: 'Spraakdeelnemers',
+  badges: 'Badges', features: 'Functietabel', legal: 'Voorwaarden', config: 'Configuratie', sparks: 'Sparks'
+};
+const PB_LINKS = () => {
+  const pb = String(PB_ADDR || '').replace(/\/+$/, '');
+  return [
+    ...(pb ? [{ t: 'PocketBase-beheer', d: 'Collecties, records en back-ups', u: pb + '/_/', ic: 'db' }] : []),
+    { t: 'Inlogaccounts', d: 'Inloggen blijft Firebase Authentication', u: FB + '/authentication/users', ic: 'key' },
+    { t: 'Cloud Messaging', d: 'Pushmeldingen', u: FB + '/settings/cloudmessaging', ic: 'chat' },
+    { t: 'Cloudinary', d: 'Foto’s en gebruik', u: 'https://console.cloudinary.com/', ic: 'cloud' },
+    { t: 'Cloudflare Worker', d: 'Pushserver en beheer', u: 'https://dash.cloudflare.com/', ic: 'server' }
+  ];
+};
 
 const nf = new Intl.NumberFormat('nl-NL');
 const fmtN = (n) => (n == null ? '–' : nf.format(Math.round(n)));
@@ -376,7 +397,8 @@ export function createAdminTools(D) {
   /* =====================  Opslag  ===================== */
   function buildStorage() {
     const root = h('div', { class: 'stg' });
-    const st = { counts: {}, ext: null, loading: false, err: '' };
+    const PB = PBMODE(), COLL_SET = PB ? PB_COLLS : COLLS;   // v1.0 pb20
+    const st = { counts: {}, ext: null, loading: false, err: '', size: undefined };
     const kpis = h('div', { class: 'stg-kpis' }), usage = h('div'), colls = h('div'), cld = h('div'), clean = h('div'), orphans = h('div'), links = h('div', { class: 'stg-links' });
     const refreshBtn = h('button', { class: 'ghost sm', type: 'button', html: ADM_IC.refresh + '<span>Vernieuwen</span>' });
     const stamp = h('small', { class: 'stg-stamp' });
@@ -395,14 +417,29 @@ export function createAdminTools(D) {
         .reduce((a, [, v]) => a + (v || 0), 0);
       const est = Object.entries(c).reduce((a, [k, v]) => a + (v || 0) * (AVG[k] || 400), 0);
       const sub = (k) => (c[k] == null ? '…' : fmtN(c[k]));
+      const msgN = PB ? (c.dmMessages == null && c.channelMessages == null ? null : (c.dmMessages || 0) + (c.channelMessages || 0)) : c['~messages'];
+      const sz = st.size, dbBytes = sz && sz.db != null ? sz.db + (sz.files || 0) : null;
       const authN = e?.auth?.ok ? fmtN(e.auth.count) + (e.auth.more ? '+' : '') : '…';
       kpis.replaceChildren(
         kpi('Inlogaccounts', authN, 'Firebase Authentication'), kpi('Profielen', sub('users'), 'documenten in users'),
-        kpi('Berichten', sub('~messages'), 'DM’s en servers samen'), kpi('Documenten', Object.keys(c).length ? fmtN(totalDocs) : '…', 'in de hele database'),
-        kpi('Geschatte grootte', Object.keys(c).length ? '≈ ' + fmtBytes(est) : '…', 'van de 1 GB gratis'));
+        kpi('Berichten', msgN == null ? '…' : fmtN(msgN), 'DM’s en servers samen'), kpi(PB ? 'Records' : 'Documenten', Object.keys(c).length ? fmtN(totalDocs) : '…', 'in de hele database'),
+        PB ? kpi('Grootte', dbBytes != null ? fmtBytes(dbBytes) : (st.size === undefined ? '…' : '–'), dbBytes != null ? 'database en bestanden op de server' : 'niet uit te lezen')
+           : kpi('Geschatte grootte', Object.keys(c).length ? '≈ ' + fmtBytes(est) : '…', 'van de 1 GB gratis'));
 
       // Firebase-gebruik
       const fs = e?.firestore;
+      if (PB) {
+        const gz = (l, v) => h('div', { class: 'gauge' }, h('div', { class: 'gauge-h' }, h('span', { text: l }), h('b', { text: v != null ? fmtBytes(v) : '–' })));
+        usage.replaceChildren(h('h4', { class: 'adm-h', text: 'PocketBase' }),
+          st.size === undefined ? h('p', { class: 'hint', text: 'Laden…' })
+            : sz && (sz.db != null || sz.files != null)
+              ? h('div', { class: 'panel stg-card' }, h('div', { class: 'gauges' }, gz('Database', sz.db), gz('Geüploade bestanden', sz.files), gz('Samen', dbBytes)),
+                  h('p', { class: 'stg-note', text: 'Dit is de echte grootte op de schijf van je PocketBase-server. Er is geen limiet van een gratis plan; de grens is de schijf van die server. Foto’s staan bij Cloudinary en tellen hier niet mee.' }))
+              : h('div', { class: 'panel stg-card' }, h('div', { class: 'du-warn info' }, h('span', { html: ADM_IC.alert }), h('div', {},
+                  h('b', { text: 'De grootte op de server is niet uit te lezen' }),
+                  h('p', { text: sz === null ? 'PocketBase gaf de grootte niet door (de server mag het bestand niet lezen). De aantallen per onderdeel hieronder werken wel.' : 'Kopieer de nieuwe pb_hooks/lib/admin10b.js naar je PocketBase en herstart hem, dan staat hier de echte grootte. De aantallen per onderdeel hieronder werken al.' }))))
+        );
+      } else
       usage.replaceChildren(h('h4', { class: 'adm-h', text: 'Firebase-gebruik vandaag' }),
         !e ? h('p', { class: 'hint', text: 'Laden…' })
           : fs?.ok ? h('div', { class: 'panel stg-card' },
@@ -421,16 +458,16 @@ export function createAdminTools(D) {
               h('a', { class: 'ghost sm', href: FB + '/usage', target: '_blank', rel: 'noopener noreferrer', text: 'Firebase → Gebruik ↗' })); })());
 
       // collecties
-      const rows = Object.entries(COLLS).map(([k, l]) => ({ k, l, n: c[k], b: (c[k] || 0) * (AVG[k] || 400) })).filter(r => r.n != null).sort((a, b) => b.b - a.b);
+      const rows = Object.entries(COLL_SET).map(([k, l]) => ({ k, l, n: c[k], b: PB ? (c[k] || 0) : (c[k] || 0) * (AVG[k] || 400) })).filter(r => r.n != null).sort((a, b) => b.b - a.b);
       const max = Math.max(1, ...rows.map(r => r.b));
       colls.replaceChildren(h('h4', { class: 'adm-h', text: 'Database per onderdeel' }),
         h('div', { class: 'panel stg-card' }, rows.length ? h('div', { class: 'bars' }, rows.map(r => h('div', { class: 'bar-row' + (r.n ? '' : ' zero') },
           h('span', { class: 'bar-l' }, r.k.startsWith('~') ? h('span', { class: 'bar-tag', text: 'overal' }) : null, r.l),
           h('div', { class: 'bar-t', role: 'img', 'aria-label': `${r.l}: ${fmtN(r.n)} documenten` }, h('i', { style: `width:${r.n ? Math.max(1.5, pct(r.b, max)) : 0}%` })),
-          h('b', { class: 'bar-n', text: fmtN(r.n) }), h('small', { class: 'bar-s', text: r.n ? '≈ ' + fmtBytes(r.b) : '' }),
-          r.k.startsWith('~') ? h('span', { class: 'bar-x' }) : h('a', { class: 'bar-x', href: `${FB}/firestore/databases/-default-/data/~2F${r.k}`, target: '_blank', rel: 'noopener noreferrer', title: 'Open in Firebase', 'aria-label': r.l + ' openen in Firebase', html: ADM_IC.ext }))))
+          h('b', { class: 'bar-n', text: fmtN(r.n) }), h('small', { class: 'bar-s', text: !PB && r.n ? '≈ ' + fmtBytes(r.b) : '' }),
+          r.k.startsWith('~') ? h('span', { class: 'bar-x' }) : h('a', { class: 'bar-x', href: PB ? `${String(PB_ADDR || '').replace(/\/+$/, '')}/_/#/collections?collection=${encodeURIComponent(r.k)}` : `${FB}/firestore/databases/-default-/data/~2F${r.k}`, target: '_blank', rel: 'noopener noreferrer', title: PB ? 'Open in PocketBase' : 'Open in Firebase', 'aria-label': r.l + (PB ? ' openen in PocketBase' : ' openen in Firebase'), html: ADM_IC.ext }))))
           : h('p', { class: 'hint', text: st.loading ? 'Tellen…' : 'Nog niet geteld.' }),
-        h('p', { class: 'stg-note', text: 'De grootte is een schatting (gemiddelde documentgrootte × aantal); de echte opslag zie je in Firebase → Gebruik. Een bericht telt mee onder “Berichten”, ook als het in een server staat.' })));
+        h('p', { class: 'stg-note', text: PB ? 'Aantal records per collectie in PocketBase, gesorteerd van veel naar weinig. Berichten in een server staan bij “Serverberichten”, DM’s bij “DM-berichten”.' : 'De grootte is een schatting (gemiddelde documentgrootte × aantal); de echte opslag zie je in Firebase → Gebruik. Een bericht telt mee onder “Berichten”, ook als het in een server staat.' })));
 
       // Cloudinary
       const cd = e?.cloudinary;
@@ -491,17 +528,17 @@ export function createAdminTools(D) {
       })));
     }
 
-    links.append(...LINKS.map(l => h('a', { class: 'stg-link', href: l.u, target: '_blank', rel: 'noopener noreferrer' }, h('span', { class: 'set-ic', html: ADM_IC[l.ic] }),
+    links.append(...(PB ? PB_LINKS() : LINKS).map(l => h('a', { class: 'stg-link', href: l.u, target: '_blank', rel: 'noopener noreferrer' }, h('span', { class: 'set-ic', html: ADM_IC[l.ic] }),
       h('span', { class: 'item-text' }, h('b', { text: l.t }), h('small', { text: l.d })), h('span', { class: 'stg-ext', html: ADM_IC.ext }))));
 
     async function refresh(quiet) {
       if (st.loading) return; st.loading = true; refreshBtn.disabled = true; st.err = '';
-      if (!quiet) { st.counts = {}; st.ext = null; }
+      if (!quiet) { st.counts = {}; st.ext = null; st.size = undefined; }
       paint();
       try {
-        const names = Object.keys(COLLS), top = names.filter(n => !n.startsWith('~')), grp = names.filter(n => n.startsWith('~')).map(n => n.slice(1));
-        const parts = [{ colls: top.slice(0, 20) }, { colls: top.slice(20), groups: grp }];
-        const jobs = parts.map(p => adm({ action: 'usage', ...p }).then(r => { Object.assign(st.counts, r.counts); paint(); }));
+        const names = Object.keys(COLL_SET), top = names.filter(n => !n.startsWith('~')), grp = names.filter(n => n.startsWith('~')).map(n => n.slice(1));
+        const parts = [{ colls: top.slice(0, 20) }, { colls: top.slice(20), groups: grp, ...(PB ? { size: true } : {}) }];
+        const jobs = parts.map(p => adm({ action: 'usage', ...p }).then(r => { Object.assign(st.counts, r.counts); if (p.size) st.size = r.size === undefined ? false : r.size; paint(); }));
         jobs.push(adm({ action: 'external' }).then(r => { st.ext = r; paint(); }));
         await Promise.all(jobs);
         stamp.textContent = 'Bijgewerkt om ' + new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
