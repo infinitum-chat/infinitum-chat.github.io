@@ -836,6 +836,17 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // config/sparks (v0.37): admins bepalen of het Sparks-tabblad voor iedereen zichtbaar is (Admin -> Sparks); modOnly = true/false
+    match /config/sparks {
+      allow read: if signedIn();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['modOnly', 'updatedAt', 'by'])
+        && request.resource.data.modOnly is bool
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
+
     function validTyping() {
       return request.resource.data.keys().hasOnly(['at'])
         && request.resource.data.at == request.time;

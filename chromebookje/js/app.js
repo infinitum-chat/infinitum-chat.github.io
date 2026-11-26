@@ -511,6 +511,13 @@ function startListeners() {
     if (s.exists()) Object.assign(PLANCFG, s.data());
     plansView?.render();
   }, () => {});
+  // Sparks-schakelaar: config/sparks { modOnly } (standaard true = alleen moderators; false = iedereen)
+  S.unsub.sparksCfg = onSnapshot(doc(db, 'config', 'sparks'), s => {
+    SPK.modOnly = s.exists() ? s.data().modOnly !== false : true;
+    renderTabs();
+    if (S.tab === 'sparks' && !sparksVisible()) setTab('dms');
+    SPK.subs.forEach(f => f());
+  }, () => {});
   // mijn eigen abonnementsaanvraag
   S.unsub.sub = onSnapshot(doc(db, 'subscriptions', uid), s => {
     SUB.mine = s.exists() ? s.data({ serverTimestamps: 'estimate' }) : null;
@@ -568,7 +575,8 @@ function teardown() {
   VOICE.stop();
   stopPresence();
   unsubChat();
-  for (const k of ['blocks', 'rpt', 'rptdone', 'profile', 'friends', 'servers', 'channels', 'config', 'badges', 'features', 'plans', 'sub', 'mods', 'settings', 'subs', 'upg', 'inbox', 'mod', 'spam', 'modp', 'modlog', 'spamlog', 'spamlocks', 'dev', 'devs']) { S.unsub[k]?.(); S.unsub[k] = null; }
+  for (const k of ['blocks', 'rpt', 'rptdone', 'profile', 'friends', 'servers', 'channels', 'config', 'badges', 'features', 'plans', 'sub', 'mods', 'settings', 'subs', 'upg', 'inbox', 'mod', 'spam', 'modp', 'modlog', 'spamlog', 'spamlocks', 'dev', 'devs', 'sparksCfg']) { S.unsub[k]?.(); S.unsub[k] = null; }
+  SPK.modOnly = true;
   BLK.list = []; BLK.set = new Set(); BLK.ready = false; RPT.open = []; RPT.done = []; RPT.doneReady = false;
   clearTimeout(MOD.timer); MOD.me = null; SPAM.me = null; SPAM.localUntil = 0; SPAM.hist = []; $('#banScreen')?.remove();
   deviceStop();
@@ -590,10 +598,13 @@ function teardown() {
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('.tab'); if (b) setTab(b.dataset.tab); });
 
 // instellingen / admin / meldingen: op de telefoon eerst de zijbalk (categorieën) tonen, pas na een tik de inhoud
-function setTab(t) { if (t === 'requests') t = 'friends'; S.tab = t; renderTabs(); renderSidebar(true); showMain(['settings', 'admin', 'inbox', 'sparks'].includes(t) ? 'list' : undefined); }
+function setTab(t) { if (t === 'requests') t = 'friends'; if (t === 'sparks' && !sparksVisible()) t = 'dms'; S.tab = t; renderTabs(); renderSidebar(true); showMain(['settings', 'admin', 'inbox', 'sparks'].includes(t) ? 'list' : undefined); }
 
 function renderTabs() {
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
+  // Sparks: moderators zien de tab altijd; andere gebruikers alleen als een moderator dat aanzet (Admin -> Sparks, config/sparks)
+  const spk = document.querySelector('.tab[data-tab="sparks"]');
+  if (spk) spk.hidden = !sparksVisible();
   const n = S.me ? incoming().length : 0;
   const bd = $('#reqBadge'); bd.hidden = !n; bd.textContent = n;
   STK.paintBadge();
@@ -719,6 +730,7 @@ function showMain(pageView) {
   unsubChat();
   const keep = () => pageView || $('#app').dataset.view || 'main';   // pagina's: gevraagde weergave, anders de huidige laten staan
   if (S.tab === 'admin' && BADGES.length && !isAdmin()) { S.tab = 'dms'; renderTabs(); renderSidebar(true); }
+  if (S.tab === 'sparks' && BADGES.length && !sparksVisible()) { S.tab = 'dms'; renderTabs(); renderSidebar(true); }
   if (S.tab !== 'admin' && adminView) { adminView = null; syncSubsWatch(); }
   if (S.tab === 'friends') { renderFriends(); setView('main'); return; }
   if (S.tab === 'streakr') { STK.render(); setView('main'); return; }
@@ -5059,7 +5071,37 @@ function renderSparks() {
    Cosmetische valuta (zoals Orbs bij Discord): geen enkel functievoordeel.
    Firestore -> sparks -> <uid> { sparks_balance (geheel getal, nooit onder 0), quests_completed (teller), last_online_at }
    Je maakt je eigen document aan met 0 / 0. Saldo en quests kun je zelf niet wijzigen (firestore.rules), alleen last_online_at. */
-const SPK = { last: 0 };
+const SPK = { last: 0, modOnly: true, subs: new Set() };
+const sparksVisible = () => !!S.me && (isMod() || SPK.modOnly === false);   // moderators altijd; anderen alleen als de schakelaar aan staat
+
+// Admin -> Sparks: knopje om Sparks voor alle gebruikers te tonen of alleen voor moderators
+function buildSparksAdmin() {
+  const box = h('div', { class: 'panel' });
+  let saving = false;
+  const paint = () => {
+    const everyone = SPK.modOnly === false;
+    const cb = h('input', { type: 'checkbox' });
+    cb.checked = everyone; cb.disabled = saving;
+    cb.addEventListener('change', async () => {
+      if (saving) return;
+      saving = true; paint();
+      try {
+        await setDoc(doc(db, 'config', 'sparks'), { modOnly: !cb.checked, updatedAt: serverTimestamp(), by: S.me.uid });
+        toast(cb.checked ? 'Sparks is nu zichtbaar voor iedereen.' : 'Sparks is nu alleen nog zichtbaar voor moderators.');
+      } catch (e) { toast(e?.code ? fbErr(e) : (e?.message || 'Opslaan mislukt.')); }
+      saving = false; paint();
+    });
+    box.replaceChildren(
+      h('p', { class: 'hint', text: 'Sparks is nog in aanbouw. Standaard zien alleen moderators het tabblad. Zet dit aan om het voor alle gebruikers te tonen.' }),
+      h('label', { class: 'up-check rs-opt' }, cb,
+        h('span', { class: 'item-text' },
+          h('b', { text: 'Sparks tonen aan iedereen' }),
+          h('small', { text: everyone ? 'Aan: alle gebruikers zien het Sparks-tabblad.' : 'Uit: alleen moderators zien het Sparks-tabblad.' }))));
+  };
+  SPK.subs.add(paint);
+  paint();
+  return box;
+}
 const SPK_EVERY = 10 * 60000;   // last_online_at hooguit elke 10 min bijwerken
 const sparksBalance = (d) => Math.max(0, Math.floor(Number(d?.sparks_balance) || 0));   // nooit onder 0
 async function sparksStart() {
@@ -5575,6 +5617,7 @@ const ADM_SECS = [
   { id: 'legal', title: 'Voorwaarden', d: 'Voorwaarden, privacy en huisregels', ic: I.lock, sub: 'Pas de teksten aan die gebruikers zien bij het inloggen en in de instellingen. De datum bovenaan wordt bij het opslaan automatisch bijgewerkt.' },
   { id: 'storage', title: 'Opslag', d: 'Gebruik, opruimen en beheer', ic: ADM_IC.db, sub: 'Wat Firebase en Cloudinary gebruiken, wat er in de database staat, en opruimen met één klik. Accounts wis je bij Mensen.' },
   { id: 'streakr', title: 'Streakr', d: 'Kwaliteit en opslag van foto’s', ic: I.image, sub: 'Kies of streakrs van iedereen via Cloudinary (goede kwaliteit) of via Firestore (lage kwaliteit) worden verstuurd.' },
+  { id: 'sparks', title: 'Sparks', d: 'Wie het Sparks-tabblad ziet', ic: ADM_IC.spark, sub: 'Kies of het Sparks-tabblad voor alle gebruikers zichtbaar is, of alleen voor moderators.' },
   { id: 'table', title: 'Tabel', d: 'Functies per versie', ic: I.check, sub: 'Welke functie bij welk abonnement hoort.' }
 ];
 const fmtWhen = (t) => { const d = t?.toDate?.(); return d ? `${dayLabel(d)} ${tf.format(d)}` : ''; };
@@ -5716,7 +5759,7 @@ function renderAdmin() {
 
   const inField = () => body.contains(document.activeElement) && document.activeElement !== search && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   const render = () => {
-    if (sec.id === 'table' || sec.id === 'legal' || sec.id === 'streakr') return;
+    if (sec.id === 'table' || sec.id === 'legal' || sec.id === 'streakr' || sec.id === 'sparks') return;
     if (sec.id === 'storage') { if (SUBS.ready) ADMT.paintStorage?.(); return; }
     if (sec.id === 'overview') { ADMT.paintOverview(); return; }
     if (sec.id === 'mod') { MODV.paint?.(); return; }
@@ -5736,6 +5779,7 @@ function renderAdmin() {
   else if (sec.id === 'mod') body.append(buildModPanel());
   else if (sec.id === 'reports') body.append(buildReportsPanel());
   else if (sec.id === 'streakr') body.append(STK.buildAdmin());
+  else if (sec.id === 'sparks') body.append(buildSparksAdmin());
   else body.append(buildFeatureEditor(() => renderAdmin()));
 
   if (sec.id !== 'reports') stopRptPanel();

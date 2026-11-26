@@ -132,6 +132,7 @@ button { cursor: pointer; }
 }
 
 .tabs { display: flex; gap: 2px; }
+.tab[hidden] { display: none !important; }   /* v0.37: Sparks-tab alleen voor moderators */
 .tab {
   position: relative;
   display: inline-flex; align-items: center; gap: 8px;

@@ -112,8 +112,8 @@ export function createPB(env) {
     { pat: 'liveness', pb: 'liveness', ts: ['pcAt', 'phAt'] },
     { pat: 'presence', pb: 'presence', ts: ['lastSeen'], srv: ['lastSeen'] },
     { pat: 'config', pb: 'config', ts: ['updatedAt'], srv: ['updatedAt', 'by'],
-      from: (d, r) => { if (r.id === 'features' || r.id === 'plans') { const x = d.data && typeof d.data === 'object' ? d.data : {}; for (const k of Object.keys(d)) delete d[k]; Object.assign(d, x); } },
-      to: (b, S, fid) => { if (fid === 'features' || fid === 'plans') { const x = Object.assign({}, b); for (const k of Object.keys(b)) delete b[k]; b.data = x; } } },
+      from: (d, r) => { if (r.id === 'features' || r.id === 'plans' || r.id === 'sparks') { const x = d.data && typeof d.data === 'object' ? d.data : {}; for (const k of Object.keys(d)) delete d[k]; Object.assign(d, x); } },
+      to: (b, S, fid) => { if (fid === 'features' || fid === 'plans' || fid === 'sparks') { const x = Object.assign({}, b); for (const k of Object.keys(b)) delete b[k]; b.data = x; } } },
     { pat: 'features', pb: 'features' },
     { pat: 'badges', pb: 'badges' },
     { pat: 'legal', pb: 'legal', ts: ['updatedAt'], srv: ['updatedAt', 'by'] },
@@ -500,6 +500,10 @@ export function createPB(env) {
   }
   async function setDoc(ref, data, opts) {
     const { ad, S, fid, pbId } = await resolveDoc(ref);
+    if (ad.pb === 'config' && fid === 'sparks') {   // Admin -> Sparks: de server schrijft dit zelf (alleen moderators), gewone gebruikers mogen niet in `config` schrijven
+      const r = await rawFetch('POST', '/api/sparks-config', { modOnly: data.modOnly !== false });
+      notify('config', 'update', Object.assign({ id: 'sparks' }, r)); kick(); return;
+    }
     if (ad.serverId) { await createRec(ad, S, fid, pbId, data, true); return; }   // de server kiest het id (meldingen, logboeken, reacties van moderators)
     const mode = ad.set || (ad.clientId ? 'create' : 'patch');
     const tryCreate = () => createRec(ad, S, fid, pbId, data, false);
