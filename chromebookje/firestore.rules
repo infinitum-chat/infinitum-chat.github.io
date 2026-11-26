@@ -706,7 +706,8 @@ service cloud.firestore {
     match /streaks/{pid} {
       function dayOk(v) { return v is string && (v == '' || v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')); }
       function shapeOk(d) {
-        return d.keys().hasOnly(['users', 'names', 'count', 'day', 'sent', 'lost', 'best', 'incAt', 'updatedAt'])
+        return d.keys().hasOnly(['users', 'names', 'count', 'day', 'sent', 'lost', 'lostDay', 'best', 'incAt', 'updatedAt'])
+          && (!('lostDay' in d) || dayOk(d.lostDay))   // v0.1: de dag waarop de afgelopen streak voor het laatst liep (herstelvenster van 3 dagen)
           && d.users is list && d.users.size() == 2
           && d.names is map
           && d.count is int && d.count >= 0 && d.count <= 100000
@@ -747,6 +748,11 @@ service cloud.firestore {
                  == (exists(/databases/$(database)/documents/streakUsers/$(request.auth.uid))
                      ? get(/databases/$(database)/documents/streakUsers/$(request.auth.uid)).data.get('used', 0) : 0) + 1)
         );
+      // v0.1: moderators (Admin -> Streakr) mogen het aantal dagen aanpassen en een streak herstellen, ook na de 3 dagen en zonder hersteller
+      allow update: if isAdmin()
+        && shapeOk(request.resource.data)
+        && request.resource.data.users == resource.data.users
+        && request.resource.data.names == resource.data.names;
       allow delete: if signedIn() && request.auth.uid in resource.data.users;
     }
 

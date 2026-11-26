@@ -1,5 +1,5 @@
-import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=0.37';
-import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=0.37';
+import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0';
+import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -9,19 +9,19 @@ import {
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp, runTransaction
-} from './db.js?v=0.37';
+} from './db.js?v=1.0';
 
-import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=0.37';
-import { createStreakr } from './streakr.js?v=0.37';
-import { createAdminTools, ADM_IC } from './admin-tools.js?v=0.37';
-import { createLastfm } from './lastfm.js?v=0.37';
-import './fs-idle.js?v=0.37';
-import { createCalls } from './call.js?v=0.37';
-import { createVoice, VIC } from './voice.js?v=0.37';
-import { buildVoiceSettings } from './audio-settings.js?v=0.37';
-import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=0.37';
+import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0';
+import { createStreakr } from './streakr.js?v=1.0';
+import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0';
+import { createLastfm } from './lastfm.js?v=1.0';
+import './fs-idle.js?v=1.0';
+import { createCalls } from './call.js?v=1.0';
+import { createVoice, VIC } from './voice.js?v=1.0';
+import { buildVoiceSettings } from './audio-settings.js?v=1.0';
+import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0';
 
-const APP_VERSION = 'v0.37';
+const APP_VERSION = 'v1.0';
 // telefoon of tablet? Niet alleen op de aanwijzer vertrouwen: sommige Samsung-telefoons (en geïnstalleerde apps) melden hover/fine pointer
 const IS_MOBILE = (() => {
   const ua = navigator.userAgent || '';
@@ -5616,7 +5616,7 @@ const ADM_SECS = [
   { id: 'reports', title: 'Rapporten', d: 'Gemelde berichten en gebruikers', ic: I.flag, sub: 'Meldingen van gebruikers over berichten en personen. Reageer onderling, zet erbij wat je ermee gaat doen, modereer de persoon (waarschuwing, time-out, ban) en rond de melding af. De melder krijgt dan een anonieme melding; de gemelde persoon ziet nooit wie meldde.' },
   { id: 'legal', title: 'Voorwaarden', d: 'Voorwaarden, privacy en huisregels', ic: I.lock, sub: 'Pas de teksten aan die gebruikers zien bij het inloggen en in de instellingen. De datum bovenaan wordt bij het opslaan automatisch bijgewerkt.' },
   { id: 'storage', title: 'Opslag', d: 'Gebruik, opruimen en beheer', ic: ADM_IC.db, sub: 'Wat Firebase en Cloudinary gebruiken, wat er in de database staat, en opruimen met één klik. Accounts wis je bij Mensen.' },
-  { id: 'streakr', title: 'Streakr', d: 'Kwaliteit en opslag van foto’s', ic: I.image, sub: 'Kies of streakrs van iedereen via Cloudinary (goede kwaliteit) of via Firestore (lage kwaliteit) worden verstuurd.' },
+  { id: 'streakr', title: 'Streakr', d: 'Streaks aanpassen en foto’s', ic: I.image, sub: 'Pas het aantal dagen van iemands streak aan of herstel een afgelopen streak (ook na 3 dagen). Daaronder kies je of streakrs van iedereen via Cloudinary (goede kwaliteit) of via Firestore (lage kwaliteit) worden verstuurd.' },
   { id: 'sparks', title: 'Sparks', d: 'Wie het Sparks-tabblad ziet', ic: ADM_IC.spark, sub: 'Kies of het Sparks-tabblad voor alle gebruikers zichtbaar is, of alleen voor moderators.' },
   { id: 'table', title: 'Tabel', d: 'Functies per versie', ic: I.check, sub: 'Welke functie bij welk abonnement hoort.' }
 ];
@@ -5861,5 +5861,6 @@ const STK = createStreakr({
   dmInfo, sendDm: (fid, text, reply) => sendMessage(text, reply || null, false, { type: 'dm', id: fid, col: collection(db, 'chats', fid, 'messages') }),
   isMobile: IS_MOBILE, cloudOn: !!(CLOUDINARY_CLOUD && CLOUDINARY_PRESET),
   setTab: (t) => setTab(t), scheduleSidebar: () => scheduleSidebar(),
+  adminUsers: () => SUBS.list,   // v0.1: Admin -> Streakr: mensen zoeken
   goDm: (id) => { S.activeDm = id; S.tab = 'dms'; renderTabs(); renderSidebar(true); showMain(); }
 });

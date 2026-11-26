@@ -2348,3 +2348,16 @@ dialog.du-dlg { --dlgbg: rgba(12, 16, 40, .98); }
 @media (max-width: 560px) { .stg-kpis, .ov-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stg-kpi b, .ov-tile b { font-size: 22px; } .stg-kpi, .ov-tile { padding: 14px; } }
 a.ghost.sm, a.glow.sm { display: inline-block; text-decoration: none; }
 a.ghost.sm { color: var(--text); }
+
+/* =====================  v0.1: Admin -> Streakr: streaks aanpassen  ===================== */
+.stk-edit { margin-bottom: 22px; }
+.stk-pick { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.stk-pickbtn { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 6px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel, transparent); color: inherit; font: 600 13px/1 var(--font); cursor: pointer; }
+.stk-pickbtn:hover { border-color: #ff9a55; }
+.stk-edit-list { display: grid; gap: 10px; margin-top: 8px; }
+.stk-edit-row { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 10px; }
+.stk-edit-top { display: grid; gap: 2px; }
+.stk-edit-top small { opacity: .75; }
+.stk-edit-acts { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.stk-numlab { display: grid; gap: 3px; }
+.stk-num { width: 110px; }

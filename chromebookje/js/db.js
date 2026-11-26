@@ -5,7 +5,7 @@
    De vertaling naar PocketBase staat in js/pb.js. Inloggen blijft Firebase Auth; pbLogin() wisselt het Firebase-token om voor een PocketBase-sessie. */
 
 import * as FS from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
-import { createPB } from './pb.js?v=0.37';
+import { createPB } from './pb.js?v=1.0';
 
 // het adres van je PocketBase (via Tailscale Funnel)
 const PB_URL = 'https://infinitum-db.tail15ab2e.ts.net';
@@ -35,6 +35,8 @@ export async function pbLogin(user) { if (pb) await pb.login((force) => user.get
 export function pbLogout() { if (pb) pb.logout(); }
 // je eigen account en alles wat erbij hoort op de server verwijderen (PocketBase-modus; in Firestore doet een Cloud Function dat na het verwijderen van het inlogaccount)
 export async function pbDeleteAccount() { if (!pb) return null; return pb.api('POST', '/api/delete-account', { confirm: 'delete' }); }
+// v0.1: een route op de PocketBase-server aanroepen (alleen in PocketBase-modus; bijv. /api/admin-streak voor moderators)
+export async function pbCall(path, body) { if (!pb) throw new Error('Geen PocketBase.'); return pb.api('POST', path, body); }
 export function setBackend(name) {
   try { localStorage.setItem('infinitum.backend', name === 'pocketbase' ? 'pocketbase' : 'firestore'); } catch (_) { /* */ }
   location.reload();

@@ -8,11 +8,11 @@
    - snaps/{id}          { from, to, pair, name, createdAt, src 'cld'|'data', img, w, h, secs, views, state 'new'|'opened'|'gone', openedAt }
    - streakUsers/{uid}   { used }  = hoeveel herstellers je (Prime) al gebruikte
    Een "dag" is een kalenderdag in Nederlandse tijd (Europe/Amsterdam). */
-import { db } from './firebase.js?v=0.37';
+import { db } from './firebase.js?v=1.0';
 import {
   collection, doc, getDocs, onSnapshot, query, where, orderBy, limit,
-  updateDoc, setDoc, deleteDoc, writeBatch, runTransaction, serverTimestamp
-} from './db.js?v=0.37';
+  updateDoc, setDoc, deleteDoc, writeBatch, runTransaction, serverTimestamp, BACKEND, pbCall
+} from './db.js?v=1.0';
 
 const FLAME = 'assets/streakr-flame.svg';
 const TZ = 'Europe/Amsterdam';
@@ -24,6 +24,10 @@ const todayNum = () => dayNum(dayStr());
 const SAND_H = 5;   // het zandlopertje verschijnt pas als er nog maar 5 uur over zijn
 const hoursLeft = () => { const [hh, mm] = hourFmt.format(Date.now()).split(':').map(Number); return 24 - (hh + mm / 60); };
 
+// v0.1: een afgelopen streak kan maar RESTORE_DAYS dagen worden hersteld (door de gebruiker zelf). Daarna verdwijnt "Streak afgelopen!"
+// en staat er weer "Begin een streak!". Moderators kunnen hem in Admin -> Streakr nog altijd herstellen.
+// De eerste dag dat "Streak afgelopen!" verschijnt telt als dag 1: met 3 dagen kan het dus op dag 1, 2 en 3 en op dag 4 niet meer.
+const RESTORE_DAYS = 3;
 const BASE_RESTORES = 3;                       // Prime: zoveel herstellers heb je
 const bonusRestores = (best) => best >= 100 ? Math.floor((best - 100) / 200) + 1 : 0;   // +1 bij 100, 300, 500, 700, ... dagen
 const IMG_RE = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
@@ -58,14 +62,30 @@ export function createStreakr(X) {
   const myUid = () => S.me?.uid;
   // waar nieuwe streakr-foto's heen gaan: admin-keuze (config/streakr.storage); zonder keuze Cloudinary, en zonder Cloudinary-instellingen altijd Firestore
   const storageMode = () => (ST.cfg.storage === 'firestore' || !X.cloudOn) ? 'firestore' : 'cloudinary';
-  // 'alive' (loopt), 'lost' (afgelopen, eventueel te herstellen) of 'none'
-  function stateOf(id) {
+  // Op welke dag is deze streak afgelopen (de eerste dag dat "Streak afgelopen!" verscheen)? Dat is 2 dagen na de laatste dag waarop jullie streak liep.
+  // `lostDay` = die laatste dag (wordt vastgelegd als de streak sluit). Zonder `lostDay` (oudere gegevens): bij een afgelopen streak is dat `day`;
+  // bij een nieuwe streak naast een oude herstelbare nemen we de begindag van de nieuwe (de oude eindigde uiterlijk dan).
+  function lostSince(d) {
+    if (d.lostDay) return dayNum(d.lostDay) + 2;
+    if (!(d.count > 0)) return d.day ? dayNum(d.day) + 2 : -1e9;
+    return d.day ? dayNum(d.day) - (d.count - 1) : -1e9;
+  }
+  const canRestore = (d) => (d.lost || 0) > 0 && todayNum() - lostSince(d) < RESTORE_DAYS;
+  // 'alive' (loopt), 'lost' (afgelopen, eventueel te herstellen) of 'none'. `raw` = zonder het herstelvenster (voor moderators in Admin)
+  function stateOf(id, raw) {
     const d = ST.streaks[id];
+    return stateFrom(d, raw);
+  }
+  function stateFrom(d, raw) {
     if (!d) return { kind: 'none', d: null, lost: 0 };
     const gap = d.day ? todayNum() - dayNum(d.day) : 99;
-    if (d.count > 0 && gap <= 1) return { kind: 'alive', d, count: d.count, gap, lost: d.lost || 0 };
-    if (d.count >= 2 && gap > 1) return { kind: 'lost', d, count: 0, gap, lost: d.count };          // verlopen, nog niet opgeruimd
-    if ((d.lost || 0) > 0) return { kind: 'lost', d, count: 0, gap, lost: d.lost };
+    const ok = raw ? ((n) => n > 0) : (n, dd) => n > 0 && canRestore({ ...dd, lost: n });
+    if (d.count > 0 && gap <= 1) return { kind: 'alive', d, count: d.count, gap, lost: ok(d.lost || 0, d) ? (d.lost || 0) : 0 };
+    if (d.count >= 2 && gap > 1) {                                                                  // verlopen, nog niet opgeruimd
+      const dd = { ...d, count: 0, lost: d.count, lostDay: d.day };
+      return ok(d.count, dd) ? { kind: 'lost', d, count: 0, gap, lost: d.count } : { kind: 'none', d, count: 0, gap, lost: 0 };
+    }
+    if ((d.lost || 0) > 0 && ok(d.lost, d)) return { kind: 'lost', d, count: 0, gap, lost: d.lost };
     return { kind: 'none', d, count: 0, gap, lost: 0 };
   }
   const aliveCount = (id) => { const s = stateOf(id); return s.kind === 'alive' ? s.count : 0; };
@@ -152,7 +172,7 @@ export function createStreakr(X) {
     for (const [id, d] of Object.entries(ST.streaks)) {
       if (!(d.count >= 2) || !d.day || t - dayNum(d.day) <= 1 || ST.settling.has(id)) continue;
       ST.settling.add(id);
-      updateDoc(doc(db, 'streaks', id), { count: 0, lost: d.count, updatedAt: serverTimestamp() }).catch(() => {});
+      updateDoc(doc(db, 'streaks', id), { count: 0, lost: d.count, lostDay: d.day, updatedAt: serverTimestamp() }).catch(() => {});
     }
   }
   // opruimen: bekeken streakrs zonder kijkbeurten over wissen hun foto; heel oude weg
@@ -213,7 +233,7 @@ export function createStreakr(X) {
       if (d.sent[other] === today && d.day !== today) {      // jullie hebben allebei vandaag gestuurd
         const gap = d.day ? todayNum() - dayNum(d.day) : 99;
         if (d.count > 0 && gap <= 1) d.count += 1;
-        else { if (d.count >= 2) d.lost = d.count; d.count = 1; }   // nieuwe streak (de oude blijft herstelbaar)
+        else { if (d.count >= 2) { d.lost = d.count; d.lostDay = d.day; } d.count = 1; }   // nieuwe streak (de oude blijft herstelbaar, 3 dagen)
         d.day = today; d.best = Math.max(d.best || 0, d.count); d.incAt = serverTimestamp();
       }
       d.updatedAt = serverTimestamp();
@@ -224,7 +244,7 @@ export function createStreakr(X) {
   /* ---------------- herstellen (Infinitum Prime) ---------------- */
   function restore(f) {
     const st = stateOf(f.id), name = X.otherName(f);
-    if (!(st.lost > 0)) return;
+    if (!(st.lost > 0)) { X.toast('Deze streak kan niet meer worden hersteld.'); return; }   // venster van 3 dagen voorbij
     if (!X.tierAtLeast('prime')) { X.askUpgrade('prime', 'Streaks herstellen'); return; }
     if (!restoresLeft()) {
       X.toast(`Je hebt geen herstellers meer. Bij 100, 300, 500, 700… dagen streak krijg je er een bij.`);
@@ -238,11 +258,12 @@ export function createStreakr(X) {
         let d = ST.streaks[f.id] || {};
         const gap = d.day ? todayNum() - dayNum(d.day) : 99;
         if (d.count >= 2 && gap > 1) {                       // nog niet afgesloten: eerst de afgelopen streak bewaren
-          await updateDoc(ref, { count: 0, lost: d.count, updatedAt: serverTimestamp() });
-          d = { ...d, count: 0, lost: d.count };
+          await updateDoc(ref, { count: 0, lost: d.count, lostDay: d.day, updatedAt: serverTimestamp() });
+          d = { ...d, count: 0, lost: d.count, lostDay: d.day };
         }
         const lost = d.lost || 0, cnt = d.count || 0;
         if (!(lost > 0)) throw new Error('Er is niets om te herstellen.');
+        if (!canRestore(d)) throw new Error('Deze streak is al meer dan ' + RESTORE_DAYS + ' dagen afgelopen en kan niet meer worden hersteld.');
         const newCount = cnt + lost;
         const patch = { count: newCount, lost: 0, best: Math.max(d.best || 0, newCount), updatedAt: serverTimestamp() };
         if (!(cnt > 0)) patch.day = dayStr(Date.now() - 864e5);      // alsof gisteren de laatste dag was: vandaag weer allebei sturen
@@ -256,7 +277,7 @@ export function createStreakr(X) {
     X.openDialog(
       h('h3', { text: 'Streak herstellen?' }),
       h('p', { class: 'sub', text: `Je streak van ${st.lost} dagen met ${name} komt terug. Dit kost 1 hersteller; je hebt er nu ${restoresLeft()} van ${restoresTotal()}.` }),
-      h('p', { class: 'hint', text: 'Je krijgt er een hersteller bij als je een streak van 100, 300, 500, 700… dagen haalt.' }),
+      h('p', { class: 'hint', text: `Je kunt een afgelopen streak ${RESTORE_DAYS} dagen lang herstellen. Je krijgt er een hersteller bij als je een streak van 100, 300, 500, 700… dagen haalt.` }),
       h('div', { class: 'dlg-actions' }, h('button', { class: 'ghost', type: 'button', onclick: X.closeDialog, text: 'Annuleren' }), go));
   }
 
@@ -731,8 +752,108 @@ export function createStreakr(X) {
     el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
   }
 
+  /* ---------------- admin: streaks van mensen aanpassen en herstellen (v0.1) ---------------- */
+  // Moderators kunnen het aantal dagen van een streak instellen en een afgelopen streak herstellen, ook als de 3 dagen al voorbij zijn
+  // en zonder dat het een hersteller van de gebruiker kost. Firestore: rechtstreeks (regels: alleen moderators). PocketBase: via /api/admin-streak.
+  async function adminWrite(pair, fields) {
+    if (BACKEND === 'pocketbase') { await pbCall('/api/admin-streak', { pair, set: fields }); return; }
+    await updateDoc(doc(db, 'streaks', pair), { ...fields, updatedAt: serverTimestamp() });
+  }
+  // wat er moet veranderen voor "zet het aantal op n" of "herstel" (de dag wordt gisteren als de streak niet meer loopt: vandaag weer allebei sturen)
+  function adminPatch(d, how, n) {
+    const raw = stateFrom(d, true), yesterday = dayStr(Date.now() - 864e5);
+    if (how === 'set') {
+      const p = { count: n, best: Math.max(d.best || 0, n), lost: raw.kind === 'alive' ? (d.lost || 0) : 0 };
+      if (n > 0 && raw.kind !== 'alive') p.day = yesterday;
+      return p;
+    }
+    const stale = d.count >= 2 && raw.kind === 'lost';             // verlopen maar nog niet afgesloten
+    const lost = stale ? d.count : (d.lost || 0), cnt = stale ? 0 : (d.count || 0), total = cnt + lost;
+    const p = { count: total, lost: 0, best: Math.max(d.best || 0, total) };
+    if (!(cnt > 0)) p.day = yesterday;
+    return p;
+  }
+  function buildStreakEditor() {
+    const box = h('div', { class: 'acc-form stk-adm stk-edit' });
+    const search = h('input', { class: 'inp', type: 'search', placeholder: 'Zoek een gebruiker (naam of user-ID)…', autocomplete: 'off', 'aria-label': 'Gebruiker zoeken' });
+    const picks = h('div', { class: 'stk-pick' });
+    const out = h('div', { class: 'stk-edit-list' });
+    let cur = null, rows = [], busy = false, seq = 0;
+
+    const whoName = (d, uid) => { const o = (d.users || []).find(u => u !== uid); return X.PROF[o]?.username || d.names?.[o] || o || 'Onbekend'; };
+    const statusText = (d) => {
+      const raw = stateFrom(d, true), win = stateFrom(d, false);
+      if (raw.kind === 'alive') return `Loopt: ${raw.count} dagen` + (raw.lost > 0 ? ` · +${raw.lost} herstelbaar${win.lost > 0 ? '' : ' (alleen via moderator)'}` : '');
+      if (raw.kind === 'lost') return `Afgelopen: ${raw.lost} dagen · ` + (win.kind === 'lost' ? 'gebruiker kan nog herstellen' : `langer dan ${RESTORE_DAYS} dagen geleden, alleen via moderator`);
+      return 'Geen streak';
+    };
+    async function load(uid) {
+      const my = ++seq; cur = uid;
+      out.replaceChildren(h('p', { class: 'hint', text: 'Laden…' }));
+      try {
+        const snap = await getDocs(query(collection(db, 'streaks'), where('users', 'array-contains', uid)));
+        if (my !== seq) return;
+        rows = snap.docs.map(x => ({ id: x.id, ...x.data() })).sort((a, b) => (b.count || 0) - (a.count || 0) || (b.lost || 0) - (a.lost || 0));
+        X.loadProfiles(rows.flatMap(r => r.users || []));
+        paintRows();
+      } catch (e) { if (my === seq) out.replaceChildren(h('p', { class: 'hint', text: e?.code ? X.fbErr(e) : (e?.message || 'Laden mislukt.') })); }
+    }
+    async function apply(r, how, n, btns) {
+      if (busy) return; busy = true; btns.forEach(b => { b.disabled = true; });
+      try {
+        await adminWrite(r.id, adminPatch(r, how, n));
+        X.toast(how === 'set' ? `Streak met ${whoName(r, cur)} staat nu op ${n} dagen.` : 'Streak is hersteld.');
+        busy = false; await load(cur);
+      } catch (e) { busy = false; btns.forEach(b => { b.disabled = false; }); X.toast(e?.code ? X.fbErr(e) : (e?.message || 'Opslaan mislukt.')); }
+    }
+    function card(r) {
+      const raw = stateFrom(r, true), shown = raw.kind === 'alive' ? raw.count : 0;
+      const num = h('input', { class: 'inp stk-num', type: 'number', min: 0, max: 100000, step: 1, value: String(shown), 'aria-label': 'Aantal dagen' });
+      const save = h('button', { class: 'glow sm', type: 'button', text: 'Aantal opslaan' });
+      const btns = [save];
+      save.onclick = () => {
+        const n = Math.floor(Number(num.value));
+        if (!Number.isFinite(n) || n < 0 || n > 100000) { X.toast('Vul een aantal dagen in tussen 0 en 100000.'); return; }
+        if (n === shown) { X.toast('Dat is al het aantal.'); return; }
+        apply(r, 'set', n, btns);
+      };
+      const acts = [h('label', { class: 'stk-numlab' }, h('small', { text: 'Dagen' }), num), save];
+      if (raw.lost > 0) {
+        const rs = h('button', { class: 'stk-restore', type: 'button', text: `Herstellen (+${raw.lost})`, title: 'Kost de gebruiker geen hersteller en kan ook na 3 dagen' });
+        btns.push(rs); rs.onclick = () => apply(r, 'restore', 0, btns); acts.push(rs);
+      }
+      return h('div', { class: 'stk-edit-row' },
+        h('div', { class: 'stk-edit-top' }, h('b', { text: 'met ' + whoName(r, cur) }), h('small', { text: statusText(r) + (r.best ? ` · record ${r.best}` : '') })),
+        h('div', { class: 'stk-edit-acts' }, acts));
+    }
+    function paintRows() {
+      if (!cur) { out.replaceChildren(); return; }
+      const u = X.adminUsers().find(x => x.uid === cur);
+      out.replaceChildren(
+        h('h4', { class: 'plans-sec', text: `Streaks van ${u?.username || X.PROF[cur]?.username || cur}` }),
+        ...(rows.length ? rows.map(card) : [h('p', { class: 'hint', text: 'Deze gebruiker heeft nog geen streaks.' })]));
+    }
+    function paintPicks() {
+      const q = search.value.trim().toLowerCase();
+      if (!q) { picks.replaceChildren(); return; }
+      const hits = X.adminUsers().filter(u => String(u.username || '').toLowerCase().includes(q) || String(u.uid).toLowerCase().includes(q)).slice(0, 8);
+      picks.replaceChildren(...(hits.length ? hits.map(u => h('button', { class: 'stk-pickbtn', type: 'button', onclick: () => { search.value = ''; paintPicks(); load(u.uid); } },
+        X.avatar(u.uid, u.username, 28, true), h('span', { text: u.username || u.uid }))) : [h('p', { class: 'hint', text: 'Niemand gevonden.' })]));
+    }
+    search.addEventListener('input', paintPicks);
+    box.append(
+      h('h4', { class: 'plans-sec', text: 'Streaks aanpassen' }),
+      h('p', { class: 'hint', text: `Zoek iemand en pas het aantal dagen van een streak aan, of herstel een afgelopen streak. Gebruikers kunnen zelf maar ${RESTORE_DAYS} dagen na het einde herstellen; jij kunt dat altijd, zonder dat het hun herstellers kost.` }),
+      search, picks, out);
+    return box;
+  }
+
   /* ---------------- admin: waar gaan streakr-foto's heen? ---------------- */
   function buildAdmin() {
+    const wrap = h('div', {}, buildStreakEditor(), buildStorageAdmin());
+    return wrap;
+  }
+  function buildStorageAdmin() {
     const box = h('div', { class: 'acc-form stk-adm' });
     const note = h('p', { class: 'acc-note' });
     let saving = false;
