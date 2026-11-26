@@ -5,7 +5,7 @@
    De vertaling naar PocketBase staat in js/pb.js. Inloggen blijft Firebase Auth; pbLogin() wisselt het Firebase-token om voor een PocketBase-sessie. */
 
 import * as FS from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
-import { createPB } from './pb.js?v=1.0';
+import { createPB } from './pb.js?v=1.0.5';
 
 // het adres van je PocketBase (via Tailscale Funnel)
 const PB_URL = 'https://infinitum-db.tail15ab2e.ts.net';
@@ -15,6 +15,7 @@ let chosen = PB_URL ? 'pocketbase' : 'firestore';
 try { if (new URLSearchParams(location.search).get('backend') === 'firestore') chosen = 'firestore'; } catch (_) { /* */ }
 try { localStorage.removeItem('infinitum.backend'); localStorage.removeItem('infinitum.backend.v1'); } catch (_) { /* oude keuzes opruimen */ }
 export const BACKEND = chosen;
+console.info('[Infinitum] build pb15 · database kiest:', chosen, '· adres:', location.search || '(geen ?backend)');
 
 const hex = (buf) => Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
 const pb = BACKEND === 'pocketbase'
