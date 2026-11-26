@@ -1,5 +1,5 @@
 /* Infinitum service worker: offline-start, cache en pushmeldingen (werkt ook als de app dicht is) */
-const VERSION = 'infinitum-v1.0-pb13';
+const VERSION = 'infinitum-v1.0-pb14';
 const SHELL = [
   './', 'index.html', 'upgrade.html', 'styles.css?v=1.0',
   'js/app.js?v=1.0', 'js/firebase.js?v=1.0', 'js/db.js?v=1.0', 'js/pb.js?v=1.0', 'js/legal.js?v=1.0', 'js/admin-tools.js?v=1.0', 'js/streakr.js?v=1.0', 'js/lastfm.js?v=1.0', 'js/call.js?v=1.0', 'js/pip.js?v=1.0', 'js/fs-idle.js?v=1.0', 'js/fs.js?v=1.0', 'js/share-quality.js?v=1.0', 'js/voice.js?v=1.0', 'js/volume.js?v=1.0', 'js/audio-fx.js?v=1.0', 'js/audio-settings.js?v=1.0', 'js/fx/gate-worklet.js?v=1.0', 'js/fx/rnnoise-worklet.js?v=1.0', 'js/fx/rnnoise.wasm?v=1.0', 'js/fx/rnnoise_simd.wasm?v=1.0', 'js/emoji.js?v=1.0', 'js/emoji-data.js?v=1.0', 'js/upgrade.js?v=8',
