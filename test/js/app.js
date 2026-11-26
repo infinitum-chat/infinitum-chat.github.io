@@ -3417,7 +3417,7 @@ function renderSettings() {
     perfBtns.forEach((el, i) => el.classList.toggle('active', PERFS[i][0] === perfPref()));
     perfNote.textContent = perfPref() === 'auto'
       ? (perfSlow() ? 'Je apparaat lijkt wat trager: de lichte modus staat nu automatisch aan.' : 'Je apparaat lijkt snel genoeg: alle animaties staan aan.')
-      : perfPref() === 'on' ? 'Lichte modus aan: geen animaties, geen wazige vlakken en een eenvoudige achtergrond.' : 'Lichte modus uit: alle animaties en effecten staan aan.';
+      : perfPref() === 'on' ? 'Lichte modus aan: geen animaties, geen wazige vlakken en een stilstaande achtergrond.' : 'Lichte modus uit: alle animaties en effecten staan aan.';
   };
   const perfBtns = PERFS.map(([k, t]) => h('button', { class: 'opt', type: 'button', onclick: () => { setPerfPref(k); markPerf(); } }, t));
   markPerf();
@@ -3524,7 +3524,7 @@ function renderSettings() {
         h('p', { class: 'set-lbl', text: 'Prestaties (lichte modus)' }),
         h('div', { class: 'opts' }, perfBtns),
         perfNote,
-        h('p', { class: 'hint', text: 'Alleen voor dit apparaat. Zet animaties, wazige vlakken en de zware achtergrond uit zodat de site soepeler loopt.' }))),
+        h('p', { class: 'hint', text: 'Alleen voor dit apparaat. Zet animaties en wazige vlakken uit en laat de bewegende Prime-achtergronden stilstaan, zodat de site soepeler loopt.' }))),
     sec('profielen', 'Profielen',
       item('profiel foto zijbalk', false, profTog),
       item('profiel foto banner bio links tip', false, h('p', { class: 'hint', text: 'Tip: klik op je profielfoto linksboven om je foto, banner, bio en links aan te passen.' }))),

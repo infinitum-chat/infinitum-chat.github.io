@@ -2385,11 +2385,6 @@ html[data-perf="1"][data-theme="light"] { --panel: rgba(255, 255, 255, .96); }
 html[data-perf="1"] .panel { box-shadow: none; }
 html[data-perf="1"] .glow::after, html[data-perf="1"] .tab.active::before { display: none; }   /* bewegende gloed/schaduw onder knoppen */
 html[data-perf="1"] .toast, html[data-perf="1"] .mn-pop, html[data-perf="1"] .em-pop, html[data-perf="1"] .em-sug { box-shadow: none; }
-/* achtergrond: een rustige kleurverloop in plaats van een zware SVG (tot 150 KB, steeds opnieuw getekend) */
-html[data-perf="1"] body::after {
-  background: radial-gradient(120% 90% at 50% 0%, #1a1f4d 0%, #0a0e24 55%, #050816 100%) !important;
-}
-html[data-perf="1"][data-theme="light"] body::after {
-  background: radial-gradient(120% 90% at 50% 0%, #ffffff 0%, #e6e9ff 60%, #d8dcf7 100%) !important;
-}
-html[data-perf="1"][data-bg="custom"] body::after { background: var(--bg-custom) center / cover no-repeat !important; }
+/* achtergrond blijft gewoon zichtbaar; alleen de bewegende (Prime: Gouden Melkweg en Aarde) gebruiken een stilstaande kopie */
+html[data-perf="1"][data-bg="melkweg"] body, html[data-perf="1"][data-bg="melkweg"] body::after { background-image: url(assets/bg-melkweg-static.svg); }
+html[data-perf="1"][data-bg="aarde"] body, html[data-perf="1"][data-bg="aarde"] body::after { background-image: url(assets/bg-aarde-static.svg); }
