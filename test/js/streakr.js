@@ -8,11 +8,11 @@
    - snaps/{id}          { from, to, pair, name, createdAt, src 'cld'|'data', img, w, h, secs, views, state 'new'|'opened'|'gone', openedAt }
    - streakUsers/{uid}   { used }  = hoeveel herstellers je (Prime) al gebruikte
    Een "dag" is een kalenderdag in Nederlandse tijd (Europe/Amsterdam). */
-import { db } from './firebase.js?v=1.0.10';
+import { db } from './firebase.js?v=1.0.11';
 import {
   collection, doc, getDocs, onSnapshot, query, where, orderBy, limit,
   updateDoc, setDoc, deleteDoc, writeBatch, runTransaction, serverTimestamp, BACKEND, pbCall
-} from './db.js?v=1.0.10';
+} from './db.js?v=1.0.11';
 
 const FLAME = 'assets/streakr-flame.svg';
 const TZ = 'Europe/Amsterdam';
@@ -857,9 +857,10 @@ export function createStreakr(X) {
     const box = h('div', { class: 'acc-form stk-adm' });
     const note = h('p', { class: 'acc-note' });
     let saving = false;
+    const DBN = BACKEND === 'pocketbase' ? 'PocketBase' : 'Firestore';   // pb20: de waarde in de database blijft 'firestore' (oude keuzes blijven werken), alleen de tekst past zich aan
     const OPTS = [
-      ['cloudinary', 'Cloudinary: goede kwaliteit', 'Foto’s tot 1280 px en scherp. Het bestand staat bij Cloudinary; in Firestore staat alleen het adres.'],
-      ['firestore', 'Firestore: lage kwaliteit', 'Foto’s tot 640 px en sterk verkleind (ongeveer 150 kB), rechtstreeks in Firestore. Cloudinary is dan niet nodig.']
+      ['cloudinary', 'Cloudinary: goede kwaliteit', `Foto’s tot 1280 px en scherp. Het bestand staat bij Cloudinary; in ${DBN} staat alleen het adres.`],
+      ['firestore', `${DBN}: lage kwaliteit`, `Foto’s tot 640 px en sterk verkleind (ongeveer 150 kB), rechtstreeks in ${DBN}. Cloudinary is dan niet nodig.`]
     ];
     const paint = () => {
       if (!box.isConnected && box.dataset.mounted) { ST.cfgSubs.delete(paint); return; }
@@ -874,14 +875,14 @@ export function createStreakr(X) {
           saving = true; paint();
           try {
             await setDoc(doc(db, 'config', 'streakr'), { storage: val, updatedAt: serverTimestamp(), by: myUid() });
-            X.toast(val === 'cloudinary' ? 'Streakrs gaan nu via Cloudinary (goede kwaliteit).' : 'Streakrs gaan nu via Firestore (lage kwaliteit).');
+            X.toast(val === 'cloudinary' ? 'Streakrs gaan nu via Cloudinary (goede kwaliteit).' : `Streakrs gaan nu via ${DBN} (lage kwaliteit).`);
           } catch (e) { X.toast(e?.code ? X.fbErr(e) : (e?.message || 'Opslaan mislukt.')); }
           saving = false; paint();
         });
         return h('label', { class: 'up-check rs-opt' + (off ? ' off' : '') }, rb,
           h('span', { class: 'item-text' }, h('b', { text: title }), h('small', { text: off ? 'Nog niet ingesteld: vul CLOUDINARY_CLOUD en CLOUDINARY_PRESET in js/firebase.js in.' : desc })));
       });
-      note.textContent = ST.cfg.storage ? 'Dit geldt voor iedereen, voor alle streakrs die vanaf nu worden verstuurd. Eerder verstuurde streakrs blijven zoals ze zijn.' : 'Er is nog niets gekozen: standaard gaat het via ' + (X.cloudOn ? 'Cloudinary.' : 'Firestore (Cloudinary is niet ingesteld).');
+      note.textContent = ST.cfg.storage ? 'Dit geldt voor iedereen, voor alle streakrs die vanaf nu worden verstuurd. Eerder verstuurde streakrs blijven zoals ze zijn.' : 'Er is nog niets gekozen: standaard gaat het via ' + (X.cloudOn ? 'Cloudinary.' : DBN + ' (Cloudinary is niet ingesteld).');
       box.replaceChildren(h('p', { class: 'hint', text: 'Kies hoe streakr-foto’s van iedereen worden opgeslagen en hoe scherp ze zijn.' }), ...rows, note);
     };
     ST.cfgSubs.add(paint);

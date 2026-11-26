@@ -5,7 +5,7 @@
    - Opslag           (aantal documenten per collectie, Firebase- en Cloudinary-gebruik, opruimacties, losse inlogaccounts)
    Het wissen en het gebruik lezen gaat via de Cloudflare Worker (POST /admin): alleen de Worker heeft de rechten om een
    inlogaccount te verwijderen en om overal in Firestore te zoeken. Zie worker.js en README (v0.37). */
-import { BACKEND, PB_ADDR } from './db.js?v=1.0.10';
+import { BACKEND, PB_ADDR } from './db.js?v=1.0.11';
 const PBMODE = () => BACKEND === 'pocketbase';   // stap 10: de Worker moet weten welke database je gebruikt
 
 const ico = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
@@ -398,7 +398,13 @@ export function createAdminTools(D) {
   function buildStorage() {
     const root = h('div', { class: 'stg' });
     const PB = PBMODE(), COLL_SET = PB ? PB_COLLS : COLLS;   // v1.0 pb20
-    const st = { counts: {}, ext: null, loading: false, err: '', size: undefined };
+    const st = { counts: {}, ext: null, loading: false, err: '', size: undefined, sizes: null, sizesKind: '', at: 0 };
+    // pb20: de cijfers worden 24 uur bewaard in deze browser; alleen na 24 uur (of met Vernieuwen) wordt er opnieuw geteld
+    const CK = 'infinitum-opslag-cache-' + (PB ? 'pb' : 'fs'), DAY = 24 * 3600 * 1000;
+    const loadCache = () => { try { const j = JSON.parse(localStorage.getItem(CK) || 'null'); return j && j.t && j.counts && Object.keys(j.counts).length ? j : null; } catch { return null; } };
+    const saveCache = () => { try { localStorage.setItem(CK, JSON.stringify({ t: st.at, counts: st.counts, ext: st.ext, size: st.size, sizes: st.sizes, sizesKind: st.sizesKind })); } catch { /* vol of niet toegestaan: dan gewoon elke keer tellen */ } };
+    const stampText = () => { const d = new Date(st.at), same = d.toDateString() === new Date().toDateString();
+      return 'Bijgewerkt ' + (same ? 'om ' : 'op ' + d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) + ' om ') + d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) + ' · wordt elke 24 uur vanzelf vernieuwd'; };
     const kpis = h('div', { class: 'stg-kpis' }), usage = h('div'), colls = h('div'), cld = h('div'), clean = h('div'), orphans = h('div'), links = h('div', { class: 'stg-links' });
     const refreshBtn = h('button', { class: 'ghost sm', type: 'button', html: ADM_IC.refresh + '<span>Vernieuwen</span>' });
     const stamp = h('small', { class: 'stg-stamp' });
@@ -458,16 +464,18 @@ export function createAdminTools(D) {
               h('a', { class: 'ghost sm', href: FB + '/usage', target: '_blank', rel: 'noopener noreferrer', text: 'Firebase → Gebruik ↗' })); })());
 
       // collecties
-      const rows = Object.entries(COLL_SET).map(([k, l]) => ({ k, l, n: c[k], b: PB ? (c[k] || 0) : (c[k] || 0) * (AVG[k] || 400) })).filter(r => r.n != null).sort((a, b) => b.b - a.b);
+      const real = PB && st.sizes && st.sizesKind === 'exact';   // exact uit de database; anders een schatting
+      const bytesOf = (k, n) => (PB && st.sizes && st.sizes[k] != null ? st.sizes[k] : (n || 0) * (AVG[k] || 400));
+      const rows = Object.entries(COLL_SET).map(([k, l]) => ({ k, l, n: c[k], b: bytesOf(k, c[k]) })).filter(r => r.n != null).sort((a, b) => b.b - a.b);
       const max = Math.max(1, ...rows.map(r => r.b));
       colls.replaceChildren(h('h4', { class: 'adm-h', text: 'Database per onderdeel' }),
         h('div', { class: 'panel stg-card' }, rows.length ? h('div', { class: 'bars' }, rows.map(r => h('div', { class: 'bar-row' + (r.n ? '' : ' zero') },
           h('span', { class: 'bar-l' }, r.k.startsWith('~') ? h('span', { class: 'bar-tag', text: 'overal' }) : null, r.l),
           h('div', { class: 'bar-t', role: 'img', 'aria-label': `${r.l}: ${fmtN(r.n)} documenten` }, h('i', { style: `width:${r.n ? Math.max(1.5, pct(r.b, max)) : 0}%` })),
-          h('b', { class: 'bar-n', text: fmtN(r.n) }), h('small', { class: 'bar-s', text: !PB && r.n ? '≈ ' + fmtBytes(r.b) : '' }),
+          h('b', { class: 'bar-n', text: fmtN(r.n) }), h('small', { class: 'bar-s', text: r.n || r.b ? (real ? '' : '≈ ') + fmtBytes(r.b) : '' }),
           r.k.startsWith('~') ? h('span', { class: 'bar-x' }) : h('a', { class: 'bar-x', href: PB ? `${String(PB_ADDR || '').replace(/\/+$/, '')}/_/#/collections?collection=${encodeURIComponent(r.k)}` : `${FB}/firestore/databases/-default-/data/~2F${r.k}`, target: '_blank', rel: 'noopener noreferrer', title: PB ? 'Open in PocketBase' : 'Open in Firebase', 'aria-label': r.l + (PB ? ' openen in PocketBase' : ' openen in Firebase'), html: ADM_IC.ext }))))
           : h('p', { class: 'hint', text: st.loading ? 'Tellen…' : 'Nog niet geteld.' }),
-        h('p', { class: 'stg-note', text: PB ? 'Aantal records per collectie in PocketBase, gesorteerd van veel naar weinig. Berichten in een server staan bij “Serverberichten”, DM’s bij “DM-berichten”.' : 'De grootte is een schatting (gemiddelde documentgrootte × aantal); de echte opslag zie je in Firebase → Gebruik. Een bericht telt mee onder “Berichten”, ook als het in een server staat.' })));
+        h('p', { class: 'stg-note', text: PB ? 'Aantal records en grootte per collectie in PocketBase, gesorteerd van groot naar klein. ' + (real ? 'De groottes komen rechtstreeks uit de database (zonder geüploade bestanden).' : 'De groottes zijn een schatting (kopieer de nieuwe pb_hooks/lib/admin10b.js naar je server voor de echte cijfers).') + ' Berichten in een server staan bij “Serverberichten”, DM’s bij “DM-berichten”.' : 'De grootte is een schatting (gemiddelde documentgrootte × aantal); de echte opslag zie je in Firebase → Gebruik. Een bericht telt mee onder “Berichten”, ook als het in een server staat.' })));
 
       // Cloudinary
       const cd = e?.cloudinary;
@@ -533,21 +541,31 @@ export function createAdminTools(D) {
 
     async function refresh(quiet) {
       if (st.loading) return; st.loading = true; refreshBtn.disabled = true; st.err = '';
-      if (!quiet) { st.counts = {}; st.ext = null; st.size = undefined; }
+      if (!quiet) { st.counts = {}; st.ext = null; st.size = undefined; st.sizes = null; st.sizesKind = ''; }
       paint();
       try {
         const names = Object.keys(COLL_SET), top = names.filter(n => !n.startsWith('~')), grp = names.filter(n => n.startsWith('~')).map(n => n.slice(1));
-        const parts = [{ colls: top.slice(0, 20) }, { colls: top.slice(20), groups: grp, ...(PB ? { size: true } : {}) }];
-        const jobs = parts.map(p => adm({ action: 'usage', ...p }).then(r => { Object.assign(st.counts, r.counts); if (p.size) st.size = r.size === undefined ? false : r.size; paint(); }));
+        const parts = [{ colls: top.slice(0, 20), ...(PB ? { sizes: true } : {}) }, { colls: top.slice(20), groups: grp, ...(PB ? { size: true, sizes: true } : {}) }];
+        const jobs = parts.map(p => adm({ action: 'usage', ...p }).then(r => {
+          Object.assign(st.counts, r.counts);
+          if (p.size) st.size = r.size === undefined ? false : r.size;
+          if (p.sizes && r.sizes) { st.sizes = Object.assign(st.sizes || {}, r.sizes); if (r.sizesKind === 'estimate' || !st.sizesKind) st.sizesKind = r.sizesKind || st.sizesKind; }
+          paint();
+        }));
         jobs.push(adm({ action: 'external' }).then(r => { st.ext = r; paint(); }));
         await Promise.all(jobs);
-        stamp.textContent = 'Bijgewerkt om ' + new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+        st.at = Date.now(); stamp.textContent = stampText(); saveCache();
       } catch (e) {
         st.err = e.message; kpis.replaceChildren(h('div', { class: 'du-warn bad wide' }, h('span', { html: ADM_IC.alert }), h('div', {}, h('b', { text: 'Opslag laden lukte niet' }), h('p', { text: e.message }))));
       } finally { st.loading = false; refreshBtn.disabled = false; if (!st.err) paint(); }
     }
     refreshBtn.onclick = () => refresh(false);
-    buildClean(); paint(); refresh(false);
+    buildClean();
+    const cached = loadCache();
+    if (cached && Date.now() - cached.t < DAY) {
+      Object.assign(st, { counts: cached.counts, ext: cached.ext || null, size: cached.size === undefined ? false : cached.size, sizes: cached.sizes || null, sizesKind: cached.sizesKind || '', at: cached.t });
+      stamp.textContent = stampText(); paint();
+    } else { paint(); refresh(false); }
     root.append(h('div', { class: 'stg-top' }, stamp, refreshBtn), kpis, usage, colls, cld, clean, orphans, h('h4', { class: 'adm-h', text: 'Snel naar' }), links);
     stgPaint = paint;
     return root;

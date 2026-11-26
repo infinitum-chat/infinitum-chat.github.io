@@ -2,8 +2,8 @@ import { auth, db, googleProvider, PUSH_URL } from './firebase.js?v=0.12';
 import {
   onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, signOut
 } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js';
-import { BACKEND, pbLogin } from './db.js?v=1.0.10';
-import { collection, doc, getDoc, getDocs, deleteDoc, onSnapshot, writeBatch, serverTimestamp } from './db.js?v=1.0.10';
+import { BACKEND, pbLogin } from './db.js?v=1.0.11';
+import { collection, doc, getDoc, getDocs, deleteDoc, onSnapshot, writeBatch, serverTimestamp } from './db.js?v=1.0.11';
 
 const $ = (sel) => document.querySelector(sel);
 
