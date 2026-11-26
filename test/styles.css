@@ -2369,7 +2369,7 @@ a.ghost.sm { color: var(--text); }
 .intro-lbl { display: grid; gap: 4px; margin: 10px 0; }
 .intro-acts { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
 
-/* ---------- v1.0.12: prestatiemodus (Instellingen -> Weergave -> Prestaties) ----------
+/* ---------- v1.0.13: prestatiemodus (Instellingen -> Weergave -> Prestaties) ----------
    html[data-perf="1"] = zo weinig mogelijk animaties en zware effecten, voor trage apparaten.
    Wordt per apparaat bewaard (localStorage), dus je pc kan mooi blijven terwijl je oude telefoon licht draait. */
 html[data-perf="1"] *:not(.stk-bar), html[data-perf="1"] *::before, html[data-perf="1"] *::after {
