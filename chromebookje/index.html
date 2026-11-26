@@ -19,6 +19,10 @@
       var t = s.theme || 'dark';
       if (t === 'system') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
       document.documentElement.dataset.theme = t;
+      /* prestatiemodus (per apparaat): auto = aan op trage apparaten */
+      var pm = localStorage.getItem('infinitum-perf') || 'auto', cn = navigator.connection || {};
+      var slow = !!cn.saveData || matchMedia('(prefers-reduced-motion: reduce)').matches || (navigator.deviceMemory && navigator.deviceMemory <= 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
+      document.documentElement.dataset.perf = (pm === 'on' || (pm === 'auto' && slow)) ? '1' : '';
       document.documentElement.dataset.bg = ['cosmos', 'aurora', 'sunset', 'ocean', 'nevel', 'neon', 'bergen', 'kristal', 'melkweg', 'aarde', 'custom'].indexOf(s.bg) > -1 ? s.bg : 'cosmos';
     } catch (e) { document.documentElement.dataset.theme = 'dark'; }
   </script>
@@ -26,8 +30,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Syne:wght@800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1.0.11">
-  <script type="module" src="js/app.js?v=1.0.11"></script>
+  <link rel="stylesheet" href="styles.css?v=1.0.13">
+  <script type="module" src="js/app.js?v=1.0.13"></script>
 </head>
 <body>
   <!-- gedeelde gradient voor het verstuur-icoon -->

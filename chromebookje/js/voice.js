@@ -14,15 +14,15 @@
 
    Scherm delen (net als bij bellen): elke verbinding heeft vanaf het begin een (lege) videoverbinding; het scherm wordt er later alleen
    ingezet (replaceTrack), dus zonder opnieuw te onderhandelen. `sharing` in het aanwezigheidsdocument meldt wie deelt. */
-import { db } from './firebase.js?v=1.0.11';
-import { createPip } from './pip.js?v=1.0.11';
-import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=1.0.11';
-import { fsElement, isFs as isFsEl, toggleFs, exitAnyFs } from './fs.js?v=1.0.11';
-import { attachVolume, volumeSlider } from './volume.js?v=1.0.11';
-import { openMic } from './audio-fx.js?v=1.0.11';
+import { db } from './firebase.js?v=1.0.13';
+import { createPip } from './pip.js?v=1.0.13';
+import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=1.0.13';
+import { fsElement, isFs as isFsEl, toggleFs, exitAnyFs } from './fs.js?v=1.0.13';
+import { attachVolume, volumeSlider } from './volume.js?v=1.0.13';
+import { openMic } from './audio-fx.js?v=1.0.13';
 import {
   collection, doc, setDoc, updateDoc, deleteDoc, getDocs, onSnapshot, query, where, serverTimestamp
-} from './db.js?v=1.0.11';
+} from './db.js?v=1.0.13';
 
 const STALE_MS = 100000;       // geen hartslag zo lang = weg
 const BEAT_MS = 40000;         // hartslag

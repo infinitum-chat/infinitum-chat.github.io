@@ -444,11 +444,12 @@ service cloud.firestore {
       }
       allow read: if isSelf(uid);
       allow create, update: if isSelf(uid)
-        && request.resource.data.keys().hasOnly(['theme', 'bg', 'customBg', 'profileClick', 'pins', 'privacy', 'notif', 'lastfm'])
+        && request.resource.data.keys().hasOnly(['theme', 'bg', 'perf', 'customBg', 'profileClick', 'pins', 'privacy', 'notif', 'lastfm'])
         && request.resource.data.get('pins', []) is list
         && request.resource.data.get('pins', []).size() <= 3
         && request.resource.data.theme in ['dark', 'light', 'system']
         && request.resource.data.bg is string && request.resource.data.bg.size() <= 20
+        && request.resource.data.get('perf', 'auto') in ['auto', 'on', 'off']
         && bgOk(request.resource.data.bg)
         && customOk()
         && request.resource.data.profileClick is bool
