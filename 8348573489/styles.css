@@ -1615,8 +1615,9 @@ dialog.lbx { width: min(94vw, 1100px); max-width: 96vw; }
   animation: pop .25s ease both;
 }
 :root[data-theme="light"] .call-card { background: rgba(255, 255, 255, .98); }
-.call-av { flex: none; position: relative; display: grid; place-items: center; border-radius: 50%; padding: 3px; box-shadow: 0 0 0 3px transparent; transition: box-shadow .12s; }
-.call-av.speaking { box-shadow: 0 0 0 3px #43d17a, 0 0 16px rgba(67, 209, 122, .5); }
+.call-av { flex: none; position: relative; display: grid; }
+.call-av .avatar { box-shadow: 0 0 0 3px transparent; transition: box-shadow .12s; }
+.call-av.speaking .avatar { box-shadow: 0 0 0 3px #43d17a, 0 0 16px rgba(67, 209, 122, .5); }
 .call-tx { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .call-tx b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .call-st { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -1666,7 +1667,7 @@ dialog.lbx { width: min(94vw, 1100px); max-width: 96vw; }
 /* ---------- spraakkanalen (v0.20) ---------- */
 .vside { display: grid; gap: 2px; margin: 0 8px 6px 34px; }
 .vside-row { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 8px; color: var(--muted); font-size: 13px; }
-.vside-row .avatar { border-radius: 50%; box-shadow: 0 0 0 2px transparent; transition: box-shadow .12s; }
+.vside-row .avatar { box-shadow: 0 0 0 2px transparent; transition: box-shadow .12s; }
 .vside-row.speaking .avatar { box-shadow: 0 0 0 2px #43d17a, 0 0 8px rgba(67, 209, 122, .5); }
 .vside-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vside-i { display: inline-grid; width: 14px; height: 14px; color: #e5384c; }
@@ -1693,8 +1694,9 @@ dialog.lbx { width: min(94vw, 1100px); max-width: 96vw; }
 .vr-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 22px; max-width: 760px; }
 .vt { display: grid; justify-items: center; gap: 8px; width: 120px; }
 .vt b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.vt-av { position: relative; display: grid; place-items: center; border-radius: 50%; padding: 3px; box-shadow: 0 0 0 3px transparent; transition: box-shadow .12s; }
-.vt-av.speaking { box-shadow: 0 0 0 3px #43d17a, 0 0 18px rgba(67, 209, 122, .5); }
+.vt-av { position: relative; display: grid; }
+.vt-av .avatar { box-shadow: 0 0 0 3px transparent; transition: box-shadow .12s; }
+.vt-av.speaking .avatar { box-shadow: 0 0 0 3px #43d17a, 0 0 18px rgba(67, 209, 122, .5); }
 .vt-badge { position: absolute; right: 0; bottom: 0; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: #e5384c; color: #fff; }
 .vt-badge svg { width: 14px; height: 14px; }
 .vr-empty { color: var(--muted); text-align: center; max-width: 340px; margin: 30px 0 0; }

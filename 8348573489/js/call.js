@@ -10,15 +10,15 @@
      verbindingsgegevens verzameld heeft en sturen die in één keer mee (offer en answer), dus per oproep maar 2 à 3 schrijfacties.
    - config/features.calls = false zet bellen voor iedereen uit (noodschakelaar, net als typingIndicators).
    Cloudflare Worker (worker.js): POST /turn geeft tijdelijke TURN-gegevens, en een pushmelding 'call' laat een gesloten app overgaan. */
-import { db } from './firebase.js?v=1.0.17';
-import { createPip } from './pip.js?v=1.0.17';
-import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=1.0.17';
-import { isFs, toggleFs, exitFs } from './fs.js?v=1.0.17';
-import { attachVolume, volumeSlider } from './volume.js?v=1.0.17';
-import { openMic } from './audio-fx.js?v=1.0.17';
+import { db } from './firebase.js?v=1.0.18';
+import { createPip } from './pip.js?v=1.0.18';
+import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=1.0.18';
+import { isFs, toggleFs, exitFs } from './fs.js?v=1.0.18';
+import { attachVolume, volumeSlider } from './volume.js?v=1.0.18';
+import { openMic } from './audio-fx.js?v=1.0.18';
 import {
   collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp
-} from './db.js?v=1.0.17';
+} from './db.js?v=1.0.18';
 
 const RING_MS = 45000;          // zo lang gaat het over voordat het "geen gehoor" is
 const STALE_MS = 90000;         // een oproep die ouder is dan dit negeren we (kan ook door een afwijkende klok komen)
