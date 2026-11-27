@@ -161,7 +161,7 @@ button { cursor: pointer; }
   animation: slide 3s linear infinite;
 }
 .tab.active::before { height: 10px; bottom: -6px; filter: blur(10px); opacity: .85; } /* bewegende schaduw */
-.tab .badge {   /* pb25: alleen het tellertje in een tabblad; de profielbadges (.badge verderop) erfden dit vroeger en werden 20px hoog, vet en wit */
+.badge {
   display: inline-grid; place-items: center;
   min-width: 20px; height: 20px; margin-left: 8px; padding: 0 6px;
   border-radius: 10px; font-size: 12px; font-weight: 700; color: #fff;
