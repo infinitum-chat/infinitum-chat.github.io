@@ -1,8 +1,8 @@
 /* =====================  Instellingen: Spraak & geluid (v0.28)  =====================
-   Het paneel bij Instellingen -> Spraak & geluid. Alle keuzes worden direct bewaard (per toestel) en gelden meteen in een lopend gesprek,
+   Het paneel bij Instellingen -> Spraak & geluid. Alle keuzes worden direct bewaard (in je account, behalve de gekozen microfoon die per toestel is) en gelden meteen in een lopend gesprek,
    op een paar na (zie `restartNote`). "Microfoon testen" opent je microfoon met precies deze instellingen en toont een meter, zodat je
    de gevoeligheid kunt afstellen voordat je belt. Het testgeluid blijft op je toestel. */
-import { loadFx, saveFx, openMic, fxSupport, fxInUse, fxPending, listMics, FX_DEFAULT } from './audio-fx.js?v=1.0.18';
+import { loadFx, saveFx, openMic, fxSupport, fxInUse, fxPending, listMics, FX_DEFAULT } from './audio-fx.js?v=1.0.19';
 
 export function buildVoiceSettings(h) {
   const sup = fxSupport();
@@ -121,7 +121,7 @@ export function buildVoiceSettings(h) {
       tog('echo', 'Echo-onderdrukking', 'Voorkomt dat de anderen zichzelf horen als je geen koptelefoon draagt.'),
       tog('agc', 'Automatische volumeregeling', 'Houdt je volume gelijk. Zet uit als je het volume zelf wilt bepalen.'),
       restartNote,
-      h('p', { class: 'hint fx-hint', text: 'Deze instellingen gelden alleen op dit toestel, want elke microfoon is anders. Dubbelklik op een schuif om terug te gaan naar de standaardwaarde.' }),
+      h('p', { class: 'hint fx-hint', text: 'Deze instellingen staan in je account en gelden op al je apparaten. Alleen de gekozen microfoon geldt per toestel, want elke microfoon heeft op elk toestel een eigen naam. Dubbelklik op een schuif om terug te gaan naar de standaardwaarde.' }),
       h('button', { class: 'ghost sm', type: 'button', onclick: () => set({ ...FX_DEFAULT }) }, 'Alles terugzetten')].filter(Boolean));   // replaceChildren zet null om in de tekst "null"
   }
   function micSelect() {

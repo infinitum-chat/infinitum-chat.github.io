@@ -9,7 +9,9 @@
 
    Alles gebeurt op je eigen toestel, vóórdat het geluid wordt verstuurd: de anderen horen direct het schone geluid, en niets gaat naar een server.
    De AI-stand draait als WebAssembly op de audiodraad van de browser (zie js/fx/). Dat is licht, maar niet gratis: reken op
-   ruwweg 1-3% van één processorkern. De instellingen staan per toestel (localStorage), want elke microfoon is anders.
+   ruwweg 1-3% van één processorkern. v1.0.19: de instellingen staan in je account (PocketBase: settings/{uid}.voicefx) en gelden dus op al je apparaten.
+   Alleen de keuze van de microfoon zelf (`device`) blijft per toestel, want een microfoon-id bestaat alleen op dat toestel. localStorage is een lokale kopie,
+   zodat de microfoon meteen goed staat bij het openen, ook voordat het account geladen is.
    Zonder AI, gevoeligheid, volume of filter wordt de microfoon gewoon rechtstreeks gebruikt, precies zoals vóór v0.28. */
 
 const KEY = 'infinitum-voicefx';
@@ -44,6 +46,19 @@ export function loadFx() {
   if (cache) return { ...cache };
   try { cache = sanitizeFx(JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { cache = sanitizeFx({}); }
   return { ...cache };
+}
+
+/* ---------- account-opslag (v1.0.19) ----------
+   syncFx(): de velden die naar je account gaan (alles behalve `device`). applyRemoteFx(): instellingen uit je account overnemen (andere
+   apparaat, of eerste keer laden): lokale kopie + open microfoons bijwerken, zonder opnieuw naar het account te schrijven. */
+export const syncFx = (r) => { const { device, ...rest } = sanitizeFx(r); return rest; };
+export const fxIsDefault = (r) => JSON.stringify(syncFx(r)) === JSON.stringify(syncFx({}));
+export function fxHasLocal() { try { return localStorage.getItem(KEY) !== null; } catch { return false; } }
+export async function applyRemoteFx(remote) {
+  const next = sanitizeFx({ ...remote, device: loadFx().device });   // eigen microfoon blijft
+  cache = next;
+  try { localStorage.setItem(KEY, JSON.stringify(next)); } catch {}
+  await Promise.all([...live].map(s => s.update(next).catch(() => 'restart')));
 }
 
 /* ---------- wat kan dit toestel? ---------- */

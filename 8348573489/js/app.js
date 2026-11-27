@@ -1,5 +1,5 @@
-import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.18';
-import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.18';
+import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.19';
+import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.19';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -9,17 +9,18 @@ import {
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp, runTransaction
-} from './db.js?v=1.0.18';
+} from './db.js?v=1.0.19';
 
-import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.18';
-import { createStreakr } from './streakr.js?v=1.0.18';
-import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.18';
-import { createLastfm } from './lastfm.js?v=1.0.18';
-import './fs-idle.js?v=1.0.18';
-import { createCalls } from './call.js?v=1.0.18';
-import { createVoice, VIC } from './voice.js?v=1.0.18';
-import { buildVoiceSettings } from './audio-settings.js?v=1.0.18';
-import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.18';
+import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.19';
+import { createStreakr } from './streakr.js?v=1.0.19';
+import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.19';
+import { createLastfm } from './lastfm.js?v=1.0.19';
+import './fs-idle.js?v=1.0.19';
+import { createCalls } from './call.js?v=1.0.19';
+import { createVoice, VIC } from './voice.js?v=1.0.19';
+import { buildVoiceSettings } from './audio-settings.js?v=1.0.19';
+import { onFx, loadFx, syncFx, fxIsDefault, fxHasLocal, applyRemoteFx } from './audio-fx.js?v=1.0.19';
+import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.19';
 
 const APP_VERSION = 'v1.0';
 // telefoon of tablet? Niet alleen op de aanwijzer vertrouwen: sommige Samsung-telefoons (en geïnstalleerde apps) melden hover/fine pointer
@@ -458,6 +459,10 @@ function startListeners() {
     const next = mergeCfg(sd);
     // account heeft nog geen prestatiekeuze (oudere versie)? Dan blijft de keuze van dit apparaat staan en gaat die naar je account
     if (!['auto', 'on', 'off'].includes(sd?.perf)) { next.perf = CFG.perf; if (CFG.perf !== 'auto' && !S.perfSeeded) { S.perfSeeded = true; saveSet(); } }
+    // v1.0.19: spraak & geluid. Account heeft nog niets? Dan gaan de instellingen van dit apparaat (als die afwijken van de standaard) naar je account.
+    if (!next.voicefx) {
+      if (!S.fxSeeded) { S.fxSeeded = true; if (fxHasLocal() && !fxIsDefault(loadFx())) { next.voicefx = syncFx(loadFx()); CFG.voicefx = next.voicefx; saveSet(); } }
+    } else if (JSON.stringify(next.voicefx) !== JSON.stringify(syncFx(loadFx()))) applyRemoteFx(next.voicefx);   // gewijzigd op een ander apparaat
     if (JSON.stringify(next) === JSON.stringify(CFG)) return;
     const lfmChanged = JSON.stringify(next.lastfm) !== JSON.stringify(CFG.lastfm);
     Object.assign(CFG, next);
@@ -3050,7 +3055,7 @@ const tierAtLeast = (t) => TIER_RANK[tierKey(S.profile)] >= TIER_RANK[t];
 const bgInfo = (id) => BGS.find(b => b.id === id) || (id === 'custom' ? CUSTOM_BG : null);
 // mag je deze achtergrond gebruiken? Zolang het profiel nog niet geladen is vertrouwen we de bewaarde keuze.
 const bgAllowed = (id) => { const b = bgInfo(id); return !!b && (!S.profile || tierAtLeast(b.tier)); };
-const DEF_CFG = { theme: 'dark', bg: 'cosmos', perf: 'auto', customBg: '', profileClick: true, pins: [], privacy: { readReceipts: true }, lastfm: { user: '', show: true, prompt: 'ask', bg: false }, notif: { desktop: false, sound: true, dm: true, server: true, mention: true, requests: true, preview: true, pcQuiet: true } };
+const DEF_CFG = { theme: 'dark', bg: 'cosmos', perf: 'auto', voicefx: null, customBg: '', profileClick: true, pins: [], privacy: { readReceipts: true }, lastfm: { user: '', show: true, prompt: 'ask', bg: false }, notif: { desktop: false, sound: true, dm: true, server: true, mention: true, requests: true, preview: true, pcQuiet: true } };
 const cloneDef = () => JSON.parse(JSON.stringify(DEF_CFG));
 // bouwt een geldige instellingen-set uit onbekende data (Firestore of de oude localStorage-versie)
 function mergeCfg(r) {
@@ -3058,6 +3063,7 @@ function mergeCfg(r) {
   const o = cloneDef();
   if (['dark', 'light', 'system'].includes(r.theme)) o.theme = r.theme;
   if (validCustom(r.customBg)) o.customBg = r.customBg;
+  if (r.voicefx && typeof r.voicefx === 'object' && !Array.isArray(r.voicefx)) o.voicefx = syncFx(r.voicefx);   // v1.0.19 spraak & geluid (microfoon, ruisonderdrukking)
   if (['auto', 'on', 'off'].includes(r.perf)) o.perf = r.perf;   // v1.0.13 prestatiemodus (lichte modus)
   if (BGS.some(b => b.id === r.bg) || (r.bg === 'custom' && o.customBg)) o.bg = r.bg;
   if (typeof r.profileClick === 'boolean') o.profileClick = r.profileClick;
@@ -3079,7 +3085,7 @@ const CFG = (() => {
     return mergeCfg(r);
   } catch { return cloneDef(); }
 })();
-function resetPrivateCfg() { const d = cloneDef(); CFG.profileClick = d.profileClick; CFG.privacy = d.privacy; CFG.notif = d.notif; CFG.lastfm = d.lastfm; }
+function resetPrivateCfg() { const d = cloneDef(); CFG.profileClick = d.profileClick; CFG.privacy = d.privacy; CFG.notif = d.notif; CFG.lastfm = d.lastfm; CFG.voicefx = d.voicefx; }
 
 const cacheLook = () => {
   try { localStorage.setItem(SET_KEY, JSON.stringify({ theme: CFG.theme, bg: CFG.bg })); } catch {}
@@ -3096,12 +3102,15 @@ function saveSetNow() {
     theme: CFG.theme, bg: CFG.bg, perf: CFG.perf, profileClick: CFG.profileClick, pins: (CFG.pins || []).slice(0, MAX_PINS),
     privacy: { readReceipts: CFG.privacy.readReceipts }, notif: { ...CFG.notif }
   };
+  if (CFG.voicefx) data.voicefx = { ...CFG.voicefx };
   if (CFG.customBg && (!S.profile || tierAtLeast('plus'))) data.customBg = CFG.customBg;
   if (CFG.lastfm.user || CFG.lastfm.prompt === 'never' || !CFG.lastfm.show || CFG.lastfm.bg) data.lastfm = { user: CFG.lastfm.user, show: CFG.lastfm.show, prompt: CFG.lastfm.prompt, bg: !!CFG.lastfm.bg };   // v0.36 (+ bg in v0.36)
   setDoc(doc(db, 'settings', S.me.uid), data).catch(e => toast(fbErr(e)));
 }
 // wijzigingen worden even gebundeld (bespaart schrijfacties op de gratis Firebase-versie)
 const saveSet = () => { cacheLook(); clearTimeout(setTimer); setTimer = setTimeout(saveSetNow, 700); };
+// v1.0.19: elke wijziging in Instellingen -> Spraak & geluid gaat (gebundeld) naar je account; de gekozen microfoon blijft op dit toestel
+onFx((fx) => { if (!S.me) return; const v = syncFx(fx); if (JSON.stringify(v) === JSON.stringify(CFG.voicefx)) return; CFG.voicefx = v; saveSet(); });
 
 // klik op een profielfoto in de zijbalk opent het profiel (instelbaar bij Instellingen -> Profielen)
 const rrOn = () => RR.enabled && CFG.privacy.readReceipts;
