@@ -2354,6 +2354,8 @@ a.ghost.sm { color: var(--text); }
 .stk-pick { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .stk-pickbtn { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 6px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel, transparent); color: inherit; font: 600 13px/1 var(--font); cursor: pointer; }
 .stk-pickbtn:hover { border-color: #ff9a55; }
+/* v1.0.16: de lijst 'Versturen naar' (vrienden kiezen) is weer een verticale lijst; .stk-pick hierboven is alleen voor de zoekknopjes in Admin */
+.stk-send .stk-pick { display: block; margin: 0; }
 .stk-edit-list { display: grid; gap: 10px; margin-top: 8px; }
 .stk-edit-row { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 10px; }
 .stk-edit-top { display: grid; gap: 2px; }
