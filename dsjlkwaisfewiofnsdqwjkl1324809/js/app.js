@@ -1,5 +1,5 @@
-import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.16';
-import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.16';
+import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.18';
+import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.18';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -9,17 +9,17 @@ import {
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp, runTransaction
-} from './db.js?v=1.0.16';
+} from './db.js?v=1.0.18';
 
-import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.16';
-import { createStreakr } from './streakr.js?v=1.0.16';
-import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.16';
-import { createLastfm } from './lastfm.js?v=1.0.16';
-import './fs-idle.js?v=1.0.16';
-import { createCalls } from './call.js?v=1.0.16';
-import { createVoice, VIC } from './voice.js?v=1.0.16';
-import { buildVoiceSettings } from './audio-settings.js?v=1.0.16';
-import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.16';
+import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.18';
+import { createStreakr } from './streakr.js?v=1.0.18';
+import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.18';
+import { createLastfm } from './lastfm.js?v=1.0.18';
+import './fs-idle.js?v=1.0.18';
+import { createCalls } from './call.js?v=1.0.18';
+import { createVoice, VIC } from './voice.js?v=1.0.18';
+import { buildVoiceSettings } from './audio-settings.js?v=1.0.18';
+import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.18';
 
 const APP_VERSION = 'v1.0';
 // telefoon of tablet? Niet alleen op de aanwijzer vertrouwen: sommige Samsung-telefoons (en geïnstalleerde apps) melden hover/fine pointer
@@ -5866,7 +5866,7 @@ function openPlans() {
   };
   body.addEventListener('focusout', () => setTimeout(() => { if (plansView?.dirty && !inField()) plansView.render(); }, 0));
   openDialog(
-    h('h3', { text: 'Infinitum Premium' }),
+    h('h3', { text: 'Infinitum Upgrade' }),
     h('p', { class: 'sub', text: 'Vergelijk de versies en vraag een abonnement aan via een kort formulier.' }),
     body,
     h('div', { class: 'dlg-actions' }, h('button', { class: 'ghost', type: 'button', onclick: closeDialog, text: 'Sluiten' })));
@@ -5968,7 +5968,7 @@ const ADMT = createAdminTools({
 
 /* =====================  Bellen (v0.19)  ===================== */
 const VOICE = createVoice({
-  h, S, auth, avatar, toast, fbErr,
+  h, S, auth, avatar, toast, fbErr, tierAtLeast, askUpgrade,
   musicBadge: (uid, extra) => LFM.callBadge(uid, extra),   // v0.36
   workerUrl: () => (PUSH_URL ? PUSH_URL.replace(/\/$/, '') : ''),
   inCall: () => CALLS.inCall(),
