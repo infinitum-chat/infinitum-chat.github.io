@@ -1,0 +1,4 @@
+Application name	Infinitum
+API key	2f3bede0131d311a40fba8b9266096d0
+Shared secret	550f5982d343c1baeae1e0903c57df3b
+Registered to	Jappie_32432
