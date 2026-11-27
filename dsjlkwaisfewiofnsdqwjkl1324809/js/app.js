@@ -1,5 +1,5 @@
-import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.13';
-import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.13';
+import { app as fbApp, auth, db, googleProvider, VAPID_KEY, PUSH_URL, CLOUDINARY_CLOUD, CLOUDINARY_PRESET, getMessaging, getToken, deleteToken, pushSupported } from './firebase.js?v=1.0.15';
+import { BACKEND, pbLogin, pbLogout, pbDeleteAccount } from './db.js?v=1.0.15';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut,
@@ -9,17 +9,17 @@ import {
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, writeBatch, arrayUnion, arrayRemove, deleteField, Timestamp, runTransaction
-} from './db.js?v=1.0.13';
+} from './db.js?v=1.0.15';
 
-import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.13';
-import { createStreakr } from './streakr.js?v=1.0.13';
-import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.13';
-import { createLastfm } from './lastfm.js?v=1.0.13';
-import './fs-idle.js?v=1.0.13';
-import { createCalls } from './call.js?v=1.0.13';
-import { createVoice, VIC } from './voice.js?v=1.0.13';
-import { buildVoiceSettings } from './audio-settings.js?v=1.0.13';
-import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.13';
+import { LEGAL_DOCS, LEGAL_DEFAULT, loadLegal, openLegal, renderLegalText, initCookies } from './legal.js?v=1.0.15';
+import { createStreakr } from './streakr.js?v=1.0.15';
+import { createAdminTools, ADM_IC } from './admin-tools.js?v=1.0.15';
+import { createLastfm } from './lastfm.js?v=1.0.15';
+import './fs-idle.js?v=1.0.15';
+import { createCalls } from './call.js?v=1.0.15';
+import { createVoice, VIC } from './voice.js?v=1.0.15';
+import { buildVoiceSettings } from './audio-settings.js?v=1.0.15';
+import { ICON as EMOJI_ICON, loadEmoji, createEmojiPicker, attachEmojiSuggest, replaceShortcodes, hasShortcode } from './emoji.js?v=1.0.15';
 
 const APP_VERSION = 'v1.0';
 // telefoon of tablet? Niet alleen op de aanwijzer vertrouwen: sommige Samsung-telefoons (en geïnstalleerde apps) melden hover/fine pointer
@@ -107,6 +107,8 @@ const I = {
   shield: svg('<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>'),
   calendar: svg('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'),
   star: svg('<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>'),
+  plusTilt: svg('<g transform="rotate(15 12 12)"><path d="M12 4v16M4 12h16"/></g>'),
+  diamond: svg('<path d="M6.5 3h11L22 9.2 12 21 2 9.2z"/><path d="M2 9.2h20M9.5 3 8 9.2 12 21l4-11.8L14.5 3"/>'),
   reply: svg('<polyline points=\"9 17 4 12 9 7\"/><path d=\"M20 18v-2a4 4 0 0 0-4-4H4\"/>'),
   pencil: svg('<path d=\"M12 20h9\"/><path d=\"M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z\"/>'),
   pin: svg('<path d="M12 17v5M9 3h6l-1 6 3 3v2H7v-2l3-3z"/>'),
@@ -3827,19 +3829,29 @@ async function openCropper(file, outW, outH, { round = false, maxLen = 140000, t
    (users/{uid}.createdAt). De badges `plus` en `prime` (id, of veld auto = 'plus' / 'prime') zijn automatisch: ze staan er zolang het tier van
    die persoon plus / prime is en verdwijnen vanzelf als het tier weggaat. Alle andere badges tonen we als de uid in het veld `users` (array) staat. */
 const BADGES = [];
-const BADGE_ICONS = ['shield', 'calendar', 'star'];
+const BADGE_ICONS = ['shield', 'calendar', 'star', 'diamond', 'plusTilt'];
+// v1.0.14: vaste volgorde + eigen SVG-icoon voor de basisbadges, ook als in de collectie `badges` een emoji of een andere naam/volgorde staat.
+// Volgorde: Lid sinds, Moderator, Plus, Prime, daarna de rest (op hun eigen `order`).
+const BADGE_FIXED = {
+  memberSince: { order: 1, icon: 'calendar' },
+  moderator: { order: 2, icon: 'shield' },
+  admin: { order: 2, icon: 'shield' },
+  plus: { order: 3, icon: 'plusTilt' },
+  prime: { order: 4, icon: 'diamond', name: 'Prime', description: 'Heeft Prime' }
+};
+const badgeFix = (b) => { const f = BADGE_FIXED[b.auto] || BADGE_FIXED[b.id]; return f ? { ...b, ...f } : b; };
 const dateFmt = new Intl.DateTimeFormat('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' });
 // v1.0: de drie automatische badges werken ook als hun definitie niet in de database staat (bijv. niet meegekomen naar PocketBase).
 // Staat er wel een definitie in `badges`, dan wint die (naam, kleur, icoon, volgorde).
 const AUTO_BADGES = [
   { id: 'memberSince', auto: 'memberSince', name: 'Lid sinds', description: 'De dag waarop dit account is gemaakt', color: '#4aa8ff', icon: 'calendar', order: 90 },
-  { id: 'plus', auto: 'plus', name: 'Infinitum+', description: 'Heeft Infinitum+', color: '#f5b942', icon: 'star', order: 91 },
-  { id: 'prime', auto: 'prime', name: 'Infinitum Prime', description: 'Heeft Infinitum Prime', color: '#b07cff', icon: 'star', order: 92 }
+  { id: 'plus', auto: 'plus', name: 'Infinitum+', description: 'Heeft Infinitum+', color: '#f5b942', icon: 'plusTilt', order: 91 },
+  { id: 'prime', auto: 'prime', name: 'Prime', description: 'Heeft Prime', color: '#b07cff', icon: 'diamond', order: 92 }
 ];
 const badgeDefs = () => [...BADGES, ...AUTO_BADGES.filter(d => !BADGES.some(b => b.id === d.id || b.auto === d.auto))];
 function badgeChips(uid, prof) {
   const out = [];
-  const list = badgeDefs().sort((a, b) => (Number(a.order) || 99) - (Number(b.order) || 99) || String(a.name).localeCompare(String(b.name)));
+  const list = badgeDefs().map(badgeFix).sort((a, b) => (Number(a.order) || 99) - (Number(b.order) || 99) || String(a.name).localeCompare(String(b.name)));
   for (const b of list) {
     let extra = '';
     const tierAuto = ['plus', 'prime'].includes(b.auto) ? b.auto : ['plus', 'prime'].includes(b.id) ? b.id : '';
