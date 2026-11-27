@@ -10,15 +10,15 @@
      verbindingsgegevens verzameld heeft en sturen die in één keer mee (offer en answer), dus per oproep maar 2 à 3 schrijfacties.
    - config/features.calls = false zet bellen voor iedereen uit (noodschakelaar, net als typingIndicators).
    Cloudflare Worker (worker.js): POST /turn geeft tijdelijke TURN-gegevens, en een pushmelding 'call' laat een gesloten app overgaan. */
-import { db } from './firebase.js?v=1.0.16';
-import { createPip } from './pip.js?v=1.0.16';
-import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=1.0.16';
-import { isFs, toggleFs, exitFs } from './fs.js?v=1.0.16';
-import { attachVolume, volumeSlider } from './volume.js?v=1.0.16';
-import { openMic } from './audio-fx.js?v=1.0.16';
+import { db } from './firebase.js?v=1.0.17';
+import { createPip } from './pip.js?v=1.0.17';
+import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=1.0.17';
+import { isFs, toggleFs, exitFs } from './fs.js?v=1.0.17';
+import { attachVolume, volumeSlider } from './volume.js?v=1.0.17';
+import { openMic } from './audio-fx.js?v=1.0.17';
 import {
   collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp
-} from './db.js?v=1.0.16';
+} from './db.js?v=1.0.17';
 
 const RING_MS = 45000;          // zo lang gaat het over voordat het "geen gehoor" is
 const STALE_MS = 90000;         // een oproep die ouder is dan dit negeren we (kan ook door een afwijkende klok komen)
@@ -151,6 +151,7 @@ export function createCalls(X) {
       c.audio.srcObject = ms;
       c.audio.play().catch(() => {});
       c.vol?.destroy(); c.vol = attachVolume(c.audio, c.peer.uid, ms);   // volume van de ander (v0.23)
+      watchSpeaking(c, ms);   // groen randje om de avatar als de ander praat
     };
     pc.onconnectionstatechange = () => {
       if (c !== state.c) return;
@@ -269,6 +270,34 @@ export function createCalls(X) {
     try { c.dc?.readyState === 'open' && c.dc.send('share:0'); } catch {}
     sendMode(c);   // 'none'
     paintCard();
+  }
+
+  /* ---------- groen randje als de ander praat ---------- */
+  function watchSpeaking(c, stream) {
+    stopSpeaking(c);
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      c.sac = new AC();
+      const an = c.sac.createAnalyser(); an.fftSize = 256;
+      c.sac.createMediaStreamSource(stream).connect(an);
+      const buf = new Uint8Array(an.fftSize); let hold = 0, on = false;
+      c.sTimer = setInterval(() => {
+        if (c !== state.c) return stopSpeaking(c);
+        if (c.sac.state === 'suspended') c.sac.resume().catch(() => {});
+        an.getByteTimeDomainData(buf);
+        let max = 0; for (let i = 0; i < buf.length; i++) max = Math.max(max, Math.abs(buf[i] - 128));
+        let now = max > 9;
+        if (now) hold = 6; else if (hold > 0) { hold--; now = true; }
+        if (now !== on) { on = now; paintSpeaking(on); }
+      }, 90);
+    } catch {}
+  }
+  function paintSpeaking(on) { card?.querySelector('.call-av')?.classList.toggle('speaking', !!on); }
+  function stopSpeaking(c) {
+    if (!c) return;
+    clearInterval(c.sTimer); c.sTimer = null;
+    try { c.sac?.close(); } catch {}
+    c.sac = null; paintSpeaking(false);
   }
 
   /* ---------- venster ---------- */
@@ -437,7 +466,7 @@ export function createCalls(X) {
     const c = state.c; state.c = null;
     stopTone(); clearTimeout(ringTimer);
     if (c) {
-      clearInterval(c.tick); clearTimeout(c.lostT);
+      clearInterval(c.tick); clearTimeout(c.lostT); stopSpeaking(c);
       c.unsub?.();
       try { c.fx ? c.fx.stop() : c.stream?.getTracks().forEach(t => t.stop()); } catch {}
       try { c.screen?.getTracks().forEach(t => t.stop()); } catch {}

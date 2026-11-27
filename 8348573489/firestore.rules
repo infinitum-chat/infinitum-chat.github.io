@@ -1199,9 +1199,9 @@ service cloud.firestore {
               && (!('shareMode' in d) || d.shareMode in ['', 'sharp', 'smooth']);   // v0.33: de modus die de streamer echt gebruikt
           }
           allow read: if canViewChan(sid, cid);
-          allow create: if isSelf(uid) && voiceChan() && !modRestricted() && canSendChan(sid, cid) && validPresence()
+          allow create: if isSelf(uid) && isPrime() && voiceChan() && !modRestricted() && canSendChan(sid, cid) && validPresence()
             && !('srvMuted' in request.resource.data);
-          allow update: if (isSelf(uid) && voiceChan() && canSendChan(sid, cid) && validPresence()
+          allow update: if (isSelf(uid) && isPrime() && voiceChan() && canSendChan(sid, cid) && validPresence()
               && request.resource.data.get('srvMuted', false) == resource.data.get('srvMuted', false))
             || (signedIn() && !isSelf(uid) && voiceChan() && canModChan(sid, cid) && changed(['srvMuted']) && request.resource.data.srvMuted is bool);
           allow delete: if isSelf(uid) || (signedIn() && canModChan(sid, cid))
