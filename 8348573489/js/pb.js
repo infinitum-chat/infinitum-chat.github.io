@@ -270,7 +270,7 @@ export function createPB(env) {
 
   /* ================= realtime (SSE) ================= */
   const RT = {
-    es: null, cid: '', topics: new Map(), reconnect: new Set(), inflight: false, timer: null, waiters: [],
+    es: null, cid: '', topics: new Map(), reconnect: new Set(), inflight: false, dirty: false, timer: null, retryT: null, failN: 0, late: false, revived: false, waiters: [],
     sub(topic, fn) {
       let set = this.topics.get(topic);
       if (!set) { set = new Set(); this.topics.set(topic, set); if (this.es) this.listen(topic); }
@@ -283,7 +283,7 @@ export function createPB(env) {
       this.es = new ES(BASE + '/api/realtime');
       this.es.addEventListener('PB_CONNECT', (ev) => {
         let id = ''; try { id = JSON.parse(ev.data).clientId || ''; } catch (_) {}
-        const again = !!this.cid; this.cid = id; this.pushSubs();
+        const again = !!this.cid || this.revived; this.revived = false; this.cid = id; this.failN = 0; this.pushSubs();
         if (again) this.settled().then(() => { for (const f of this.reconnect) { try { f(); } catch (_) {} } });   // pas opnieuw laden als de abonnementen weer actief zijn
       });
       for (const t of this.topics.keys()) this.listen(t);
@@ -298,21 +298,52 @@ export function createPB(env) {
     pushSubs() {
       if (!this.cid) return;
       if (this.timer) clearTimeout(this.timer);
-      this.timer = setTimeout(() => {
-        this.timer = null; this.inflight = true;
-        rawFetch('POST', '/api/realtime', { clientId: this.cid, subscriptions: [...this.topics.keys()] }).catch(() => {}).then(() => { this.inflight = false; if (!this.timer) this.release(); });
-      }, 10);
+      if (this.retryT) { clearTimeout(this.retryT); this.retryT = null; }
+      this.timer = setTimeout(() => { this.timer = null; this.flush(); }, 10);
+    },
+    // v1.0 pb31: één aanvraag tegelijk. De server vervangt bij elke aanvraag de héle lijst; twee aanvragen tegelijk konden in de verkeerde volgorde
+    // aankomen, waarna de oudere (kortere) lijst won en bijvoorbeeld de spraakkanalen of sigs ongemerkt niet meer gevolgd werden. Mislukt een aanvraag
+    // (even geen verbinding), dan proberen we het opnieuw in plaats van het stilletjes te laten zitten.
+    flush() {
+      if (!this.cid) return;
+      if (this.inflight) { this.dirty = true; return; }
+      this.inflight = true; this.dirty = false;
+      const cid = this.cid;
+      rawFetch('POST', '/api/realtime', { clientId: cid, subscriptions: [...this.topics.keys()] }).then(() => true, () => false).then((ok) => {
+        this.inflight = false;
+        if (cid !== this.cid) { this.pushSubs(); return; }   // ondertussen opnieuw verbonden: met het nieuwe id opnieuw beginnen
+        if (!ok) {
+          this.failN++; this.late = true;
+          if (this.failN <= 8 && !this.timer) { this.retryT = setTimeout(() => { this.retryT = null; this.flush(); }, Math.min(8000, 400 * this.failN * this.failN)); }
+          if (!this.retryT) this.release();
+          return;
+        }
+        this.failN = 0;
+        if (this.dirty || this.timer) { if (!this.timer) this.flush(); return; }
+        if (this.late) { this.late = false; for (const f of [...this.reconnect]) { try { f(); } catch (_) {} } }   // iets werd geladen vóórdat de abonnementen actief waren: nu bijwerken
+        this.release();
+      });
     },
     release() { const w = this.waiters; this.waiters = []; w.forEach((f) => f()); },
     // wacht tot de abonnementen actief zijn (max. 3 seconden), zodat een bericht tussen het laden van de lijst en het abonneren niet gemist wordt
     settled() {
       return new Promise((res) => {
-        if (!ES || (this.cid && !this.timer && !this.inflight)) return res();
-        const t = setTimeout(res, 3000); this.waiters.push(() => { clearTimeout(t); res(); });
+        if (!ES || (this.cid && !this.timer && !this.inflight && !this.retryT)) return res();
+        const t = setTimeout(() => { this.late = true; res(); }, 3000); this.waiters.push(() => { clearTimeout(t); res(); });   // te laat? dan na het activeren alsnog bijwerken (late)
       });
     },
-    close() { if (this.es) { try { this.es.close(); } catch (_) {} } this.es = null; this.cid = ''; },
+    // de verbinding kan stil dood zijn gegaan (telefoon op de achtergrond, wifi weg): opnieuw verbinden en alles bijwerken
+    revive() { if (!this.es) return; try { this.es.close(); } catch (_) {} this.es = null; this.cid = ''; this.revived = true; this.open(); },
+    close() { if (this.es) { try { this.es.close(); } catch (_) {} } this.es = null; this.cid = ''; if (this.retryT) { clearTimeout(this.retryT); this.retryT = null; } },
   };
+  if (typeof document !== 'undefined' && document.addEventListener && typeof addEventListener === 'function') {
+    let hiddenAt = 0;
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) hiddenAt = Date.now();
+      else { const was = hiddenAt; hiddenAt = 0; if (was && Date.now() - was > 20000) RT.revive(); }
+    });
+    addEventListener('online', () => RT.revive());
+  }
 
   // alle luisteraars per collectie, zodat een eigen wijziging meteen zichtbaar is (zonder op de server te wachten)
   const LIVE = new Map();

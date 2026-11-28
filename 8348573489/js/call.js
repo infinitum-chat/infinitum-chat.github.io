@@ -23,6 +23,7 @@ import {
 const RING_MS = 45000;          // zo lang gaat het over voordat het "geen gehoor" is
 const STALE_MS = 90000;         // een oproep die ouder is dan dit negeren we (kan ook door een afwijkende klok komen)
 const GATHER_MS = 3500;         // maximaal zo lang wachten op de verbindingsgegevens van dit toestel
+const GATHER_MAX_MS = 6000;     // pb31: met TURN wachten we (tot hier) op een relay-kandidaat, anders mist het aanbod de route via de server
 const LOST_MS = 9000;           // verbinding weg? zo lang proberen we te herstellen
 const FALLBACK_ICE = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];   // gratis STUN; zonder TURN kan het op sommige netwerken niet lukken
 
@@ -96,11 +97,14 @@ export function createCalls(X) {
     return { list: FALLBACK_ICE, relay: false };
   }
 
-  const gathered = (pc) => new Promise(res => {
+  // pb31: zie voice.js: met TURN wachten we na GATHER_MS nog tot er een relay-kandidaat is (max. GATHER_MAX_MS)
+  const gathered = (pc, wantRelay) => new Promise(res => {
     if (pc.iceGatheringState === 'complete') return res();
-    const done = () => { clearTimeout(t); pc.removeEventListener('icegatheringstatechange', on); res(); };
+    const t0 = Date.now(); let iv = 0;
+    const done = () => { clearInterval(iv); pc.removeEventListener('icegatheringstatechange', on); res(); };
     const on = () => { if (pc.iceGatheringState === 'complete') done(); };
-    const t = setTimeout(done, GATHER_MS);
+    const hasRelay = () => / typ relay/.test((pc.localDescription && pc.localDescription.sdp) || '');
+    iv = setInterval(() => { const el = Date.now() - t0; if (pc.iceGatheringState === 'complete' || (el >= GATHER_MS && (!wantRelay || hasRelay())) || el >= GATHER_MAX_MS) done(); }, 150);
     pc.addEventListener('icegatheringstatechange', on);
   });
 
@@ -507,7 +511,7 @@ export function createCalls(X) {
       if (state.c !== c) return drop(c);
       const pc = makePc(c, ice.list);
       await pc.setLocalDescription(await pc.createOffer());
-      await gathered(pc);
+      await gathered(pc, c.relay);
       if (state.c !== c) return drop(c);
       const offer = { type: pc.localDescription.type, sdp: pc.localDescription.sdp };
       await setDoc(doc(db, 'calls', me), {
@@ -579,7 +583,7 @@ export function createCalls(X) {
       const at = pc.getTransceivers().filter(t => t.receiver.track.kind === 'audio')[1];
       if (at) { at.direction = 'sendrecv'; c.asender = at.sender; }
       await pc.setLocalDescription(await pc.createAnswer());
-      await gathered(pc);
+      await gathered(pc, c.relay);
       if (state.c !== c) return drop(c);
       await updateDoc(doc(db, 'calls', c.id), { status: 'accepted', answer: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
       c.audio.play().catch(() => {});

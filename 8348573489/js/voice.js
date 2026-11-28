@@ -15,6 +15,7 @@
    Scherm delen (net als bij bellen): elke verbinding heeft vanaf het begin een (lege) videoverbinding; het scherm wordt er later alleen
    ingezet (replaceTrack), dus zonder opnieuw te onderhandelen. `sharing` in het aanwezigheidsdocument meldt wie deelt. */
 import { db } from './firebase.js?v=1.0.19';
+import { BACKEND } from './db.js?v=1.0.19';
 import { createPip } from './pip.js?v=1.0.19';
 import { askShareMode, profile, tuneSender, retuneLive, describeSource, captureScreen, readActiveMode, applyModeBadge } from './share-quality.js?v=1.0.19';
 import { fsElement, isFs as isFsEl, toggleFs, exitAnyFs } from './fs.js?v=1.0.19';
@@ -29,8 +30,11 @@ const BEAT_MS = 40000;         // hartslag
 const GATHER_MS = 3500;
 const LOST_MS = 9000;
 const CONNECT_MS = 25000;      // zo lang wachten op een verbinding met één deelnemer
+const GATHER_MAX_MS = 6000;    // pb31: met TURN wachten we (tot hier) op een relay-kandidaat, anders mist het aanbod de route via de server
+const POLL_FAST_MS = 3000;     // pb31: vangnet naast realtime: sneller als er nog iemand niet verbonden is
+const POLL_SLOW_MS = 8000;     // ... en rustiger als iedereen verbonden is
 const MAX_USERS = 8;
-const MAX_RETRY = 4;
+const MAX_RETRY = 4;            // na zo veel mislukte pogingen één keer een melding; we blijven daarna rustig doorproberen (max. elke 20 s)
 const FALLBACK_ICE = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
 
 const svg = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
@@ -59,7 +63,8 @@ export const VIC = {
 export function createVoice(X) {
   /* X: { h, S, auth, avatar, toast, fbErr, workerUrl, inCall, isDnd, onChange, goTo, tierAtLeast, askUpgrade } */
   const { h, S } = X;
-  const state = { enabled: true, cur: null, roster: new Map(), watches: new Map(), want: [], room: null, sweep: 0 };
+  const state = { enabled: true, cur: null, roster: new Map(), watches: new Map(), want: [], room: null, sweep: 0, stamp: new Map() };
+  const POLL_ON = BACKEND === 'pocketbase';   // pb31: bij Firestore zijn de luisteraars betrouwbaar (en tellen leesacties mee), bij PocketBase is dit het vangnet
   const key = (sid, cid) => sid + '/' + cid;
   const presCol = (sid, cid) => collection(db, 'servers', sid, 'channels', cid, 'voice');
   const sigCol = (sid, cid) => collection(db, 'servers', sid, 'channels', cid, 'sigs');
@@ -97,7 +102,36 @@ export function createVoice(X) {
   function emit() {
     try { X.onChange?.(); } catch {}
     paintCard();
-    if (state.room) { if (state.room.el.isConnected) state.room.paint(); else state.room = null; }
+    if (state.room?.el.isConnected) state.room.paint();   // pb31: de kamer niet meer 'vergeten' als hij heel even los van de pagina zit; room() zet een nieuwe zodra de pagina opnieuw wordt getekend
+  }
+  // één momentopname van wie er in een kanaal zit verwerken (uit een realtime-gebeurtenis, of uit het vangnet hieronder)
+  function onRoster(k, snap) {
+    const old = state.roster.get(k) || new Map(), next = new Map(), now = Date.now();
+    for (const d of snap.docs) {
+      const v = d.data({ serverTimestamps: 'estimate' }), at = v.at?.toMillis?.() || now, prev = old.get(d.id);
+      next.set(d.id, {
+        uid: d.id, name: String(v.name || 'Iemand').slice(0, 20), muted: !!v.muted, deaf: !!v.deaf, sharing: !!v.sharing, srvMuted: !!v.srvMuted,
+        shareMode: v.sharing && (v.shareMode === 'sharp' || v.shareMode === 'smooth') ? v.shareMode : '',   // v0.33: de modus die de streamer echt gebruikt
+        // v0.34: een document dat al lang niet meer is bijgewerkt (achtergebleven na een crash) telt meteen niet meer mee, ook niet de eerste 100 s na het laden
+        at, seen: prev && prev.at === at ? prev.seen : (!prev && now - at > STALE_MS + 60000 ? at : now), joined: prev ? prev.joined : at
+      });
+    }
+    // v0.34: een document dat > 6 minuten niet is bijgewerkt is achtergebleven; de regels laten iedere kijker dat opruimen (de server doet het ook)
+    for (const d of snap.docs) { const t = d.data().at?.toMillis?.(); if (t && now - t > 6 * 60000 && !d.metadata.hasPendingWrites) deleteDoc(d.ref).catch(() => {}); }
+    const first = !state.roster.has(k), me = S.me?.uid;
+    state.roster.set(k, next);
+    const cur = state.cur;
+    if (!first && cur && key(cur.sid, cur.cid) === k && hearing(cur)) {   // iemand anders weg of begonnen/gestopt met delen in jouw kanaal
+      // v0.34: het join-geluid komt pas als de verbinding met die persoon echt staat (zie onconnectionstatechange), niet al bij het document.
+      // Het leave-geluid alleen voor wie we ook echt hoorden binnenkomen.
+      let left = false, shareOn = false, shareOff = false;
+      for (const id of old.keys()) if (id !== me && !next.has(id) && cur.heard?.has(id)) left = true;
+      for (const [id, v] of next) { const o = old.get(id); if (o && !o.sharing && v.sharing) shareOn = true; }
+      for (const [id, o] of old) { const v = next.get(id); if (o.sharing && (!v || !v.sharing)) shareOff = true; }
+      if (shareOn) sfx('shareOn'); else if (shareOff) sfx('shareOff'); else if (left) sfx('leave');
+    }
+    if (cur && key(cur.sid, cur.cid) === k) for (const id of cur.heard || []) if (!next.has(id)) cur.heard.delete(id);
+    emit(); if (state.cur && key(state.cur.sid, state.cur.cid) === k) { reconcile(); syncModes(); }
   }
   function applyWatch() {
     const want = new Set(state.want.map(x => key(x.sid, x.cid)));
@@ -106,34 +140,7 @@ export function createVoice(X) {
     for (const k of want) {
       if (state.watches.has(k)) continue;
       const [sid, cid] = k.split('/');
-      const unsub = onSnapshot(presCol(sid, cid), snap => {
-        const old = state.roster.get(k) || new Map(), next = new Map(), now = Date.now();
-        for (const d of snap.docs) {
-          const v = d.data({ serverTimestamps: 'estimate' }), at = v.at?.toMillis?.() || now, prev = old.get(d.id);
-          next.set(d.id, {
-            uid: d.id, name: String(v.name || 'Iemand').slice(0, 20), muted: !!v.muted, deaf: !!v.deaf, sharing: !!v.sharing, srvMuted: !!v.srvMuted,
-            shareMode: v.sharing && (v.shareMode === 'sharp' || v.shareMode === 'smooth') ? v.shareMode : '',   // v0.33: de modus die de streamer echt gebruikt
-            // v0.34: een document dat al lang niet meer is bijgewerkt (achtergebleven na een crash) telt meteen niet meer mee, ook niet de eerste 100 s na het laden
-            at, seen: prev && prev.at === at ? prev.seen : (!prev && now - at > STALE_MS + 60000 ? at : now), joined: prev ? prev.joined : at
-          });
-        }
-        // v0.34: een document dat > 6 minuten niet is bijgewerkt is achtergebleven; de regels laten iedere kijker dat opruimen (de server doet het ook)
-        for (const d of snap.docs) { const t = d.data().at?.toMillis?.(); if (t && now - t > 6 * 60000 && !d.metadata.hasPendingWrites) deleteDoc(d.ref).catch(() => {}); }
-        const first = !state.roster.has(k), me = S.me?.uid;
-        state.roster.set(k, next);
-        const cur = state.cur;
-        if (!first && cur && key(cur.sid, cur.cid) === k && hearing(cur)) {   // iemand anders weg of begonnen/gestopt met delen in jouw kanaal
-          // v0.34: het join-geluid komt pas als de verbinding met die persoon echt staat (zie onconnectionstatechange), niet al bij het document.
-          // Het leave-geluid alleen voor wie we ook echt hoorden binnenkomen.
-          let left = false, shareOn = false, shareOff = false;
-          for (const id of old.keys()) if (id !== me && !next.has(id) && cur.heard?.has(id)) left = true;
-          for (const [id, v] of next) { const o = old.get(id); if (o && !o.sharing && v.sharing) shareOn = true; }
-          for (const [id, o] of old) { const v = next.get(id); if (o.sharing && (!v || !v.sharing)) shareOff = true; }
-          if (shareOn) sfx('shareOn'); else if (shareOff) sfx('shareOff'); else if (left) sfx('leave');
-        }
-        if (cur && key(cur.sid, cur.cid) === k) for (const id of cur.heard || []) if (!next.has(id)) cur.heard.delete(id);
-        emit(); if (state.cur && key(state.cur.sid, state.cur.cid) === k) { reconcile(); syncModes(); }
-      }, () => { state.roster.set(k, new Map()); emit(); });
+      const unsub = onSnapshot(presCol(sid, cid), snap => { state.stamp.set(k, Date.now()); onRoster(k, snap); }, () => { state.roster.set(k, new Map()); emit(); });
       state.watches.set(k, { unsub });
     }
     if (state.watches.size && !state.sweep) state.sweep = setInterval(() => { emit(); reconcile(); }, 20000);
@@ -157,11 +164,15 @@ export function createVoice(X) {
     } catch (e) { console.warn('TURN ophalen mislukt:', e); }
     return { list: FALLBACK_ICE, relay: false };
   }
-  const gathered = (pc) => new Promise(res => {
+  // pb31: wacht tot de verbindingsgegevens van dit toestel klaar zijn. Met TURN (wantRelay) wachten we na GATHER_MS nog tot er een relay-kandidaat is
+  // (max. GATHER_MAX_MS): een aanbod zonder die route werkt op strenge netwerken (mobiel internet) niet, en dat gaf de "soms lukt het niet".
+  const gathered = (pc, wantRelay) => new Promise(res => {
     if (pc.iceGatheringState === 'complete') return res();
-    const done = () => { clearTimeout(t); pc.removeEventListener('icegatheringstatechange', on); res(); };
+    const t0 = Date.now(); let iv = 0;
+    const done = () => { clearInterval(iv); pc.removeEventListener('icegatheringstatechange', on); res(); };
     const on = () => { if (pc.iceGatheringState === 'complete') done(); };
-    const t = setTimeout(done, GATHER_MS);
+    const hasRelay = () => / typ relay/.test((pc.localDescription && pc.localDescription.sdp) || '');
+    iv = setInterval(() => { const el = Date.now() - t0; if (pc.iceGatheringState === 'complete' || (el >= GATHER_MS && (!wantRelay || hasRelay())) || el >= GATHER_MAX_MS) done(); }, 150);
     pc.addEventListener('icegatheringstatechange', on);
   });
   // v0.28: de microfoon komt uit audio-fx.js (ruisonderdrukking, gevoeligheid, volume; instelbaar bij Instellingen -> Spraak & geluid)
@@ -222,15 +233,15 @@ export function createVoice(X) {
     const others = people(sid, cid).filter(p => p.uid !== S.me.uid);
     if (others.length >= limit) return X.toast('Dit spraakkanaal zit vol.');
     const c = state.cur = {
-      sid, cid, name: meta.name || 'spraak', sname: meta.sname || '', limit, peers: new Map(), retries: {}, muted: false, deaf: false, wasMuted: false, sharing: false, screen: null, watching: null,
+      sid, cid, name: meta.name || 'spraak', sname: meta.sname || '', limit, peers: new Map(), retries: {}, nextTry: {}, sigStamp: 0, lastPoll: 0, polling: false, muted: false, deaf: false, wasMuted: false, sharing: false, screen: null, watching: null, nextTry: {}, sigStamp: 0, lastPoll: 0, polling: false,
       srvMuted: false, status: 'joining', heard: new Set(), preset: new Set(others.map(p => p.uid)), selfHeard: false, lastBeat: Date.now(), box: h('div', { class: 'voice-audio', hidden: true }), levels: new Map(), speaking: new Set(), selfSeen: false
     };
     document.body.append(c.box);
     paintCard(); emit();
     try {
-      c.stream = await mic(c);
-      if (state.cur !== c) return drop(c);
-      const ice = await iceServers(sid, cid); c.ice = ice.list; c.relay = ice.relay;
+      // pb31: microfoon en TURN-gegevens tegelijk (de TURN-aanvraag kon tot 4 s duren vóórdat je in het kanaal verscheen)
+      const [stream, ice] = await Promise.all([mic(c), iceServers(sid, cid)]);
+      c.stream = stream; c.ice = ice.list; c.relay = ice.relay;
       if (state.cur !== c) return drop(c);
       // oude verbindingsgegevens van vorige keren opruimen (alleen die van of voor jou)
       const me = S.me.uid;
@@ -248,11 +259,14 @@ export function createVoice(X) {
       c.lvl = setInterval(() => levelTick(c), 140);
       c.hb = setInterval(() => beat(c), BEAT_MS);
       c.unsubTo = onSnapshot(query(sigCol(sid, cid), where('to', '==', me)), snap => {
+        c.sigStamp = Date.now();
         for (const ch of snap.docChanges()) if (ch.type !== 'removed') onOffer(c, ch.doc);
       }, () => {});
       c.unsubFrom = onSnapshot(query(sigCol(sid, cid), where('from', '==', me)), snap => {
-        for (const ch of snap.docChanges()) if (ch.type !== 'removed') onAnswer(c, ch.doc);
+        c.sigStamp = Date.now();
+        for (const ch of snap.docChanges()) { if (ch.type === 'removed') onSigRemoved(c, ch.doc.id); else onAnswer(c, ch.doc); }
       }, () => {});
+      if (POLL_ON) c.poll = setInterval(() => pollNow(c), POLL_FAST_MS);
       applyWatch(); paintCard(); emit(); reconcile();
       // v0.34: het join-geluid hoor je pas als je echt verbonden bent: met de eerste deelnemer die al in het kanaal zat zodra die verbinding staat (zie
       // peerConnected); zit er niemand, dan meteen nu (je bent dan al volledig verbonden).
@@ -287,7 +301,7 @@ export function createVoice(X) {
   }
   function cleanup(c) {
     if (state.cur === c) state.cur = null;
-    clearInterval(c.hb); clearInterval(c.lvl); clearTimeout(c.joinT);
+    clearInterval(c.hb); clearInterval(c.lvl); clearInterval(c.poll); clearTimeout(c.joinT);
     c.unsubTo?.(); c.unsubFrom?.();
     for (const uid of [...c.peers.keys()]) dropPeer(c, uid);
     try { c.fx ? c.fx.stop() : c.stream?.getTracks().forEach(t => t.stop()); } catch {}
@@ -308,14 +322,14 @@ export function createVoice(X) {
     else if (c.selfSeen) { leave('Je bent uit het spraakkanaal gezet.', true); return; }
     const ids = new Set(people(c.sid, c.cid).filter(p => p.uid !== me).map(p => p.uid));
     for (const uid of [...c.peers.keys()]) if (!ids.has(uid)) dropPeer(c, uid);
-    for (const uid of ids) if (!c.peers.has(uid) && me > uid && (c.retries[uid] || 0) <= MAX_RETRY) startOffer(c, uid);
+    for (const uid of ids) if (!c.peers.has(uid) && me > uid && Date.now() >= (c.nextTry[uid] || 0)) startOffer(c, uid);
   }
   function newPeer(c, uid, nonce, role) {
     const pc = new RTCPeerConnection({ iceServers: c.ice, bundlePolicy: 'max-bundle' });
     const audio = h('audio', { autoplay: true, playsinline: true }); audio.muted = c.deaf; c.box.append(audio);
     const video = h('video', { autoplay: true, playsinline: true, muted: true });
     const saudio = h('audio', { autoplay: true, playsinline: true }); c.box.append(saudio);   // geluid van het gedeelde scherm (v0.27)
-    const p = { uid, pc, nonce, audio, video, saudio, vsender: null, asender: null, remoteVideo: false, connected: false };
+    const p = { uid, pc, nonce, role, created: Date.now(), sent: false, audio, video, saudio, vsender: null, asender: null, remoteVideo: false, connected: false };
     for (const t of c.stream.getTracks()) pc.addTrack(t, c.stream);
     // de beller (offer) maakt de videoverbinding aan, de ander gebruikt die na het binnenkomen van het aanbod (zie onOffer)
     if (role === 'offer') {
@@ -372,10 +386,56 @@ export function createVoice(X) {
   }
   function failPeer(c, uid) {
     const p = c.peers.get(uid); if (!p || c.closing) return;
+    const role = p.role;
     dropPeer(c, uid);
-    c.retries[uid] = (c.retries[uid] || 0) + 1;
-    if (c.retries[uid] > MAX_RETRY) { X.toast('De verbinding met een deelnemer is mislukt.'); return; }
-    setTimeout(() => { if (state.cur === c) reconcile(); }, 2000 + c.retries[uid] * 1500);
+    // pb31: de ander die de verbinding opzet (de grootste uid) wist niet dat deze kant het opgaf, en wachtte dan tot zijn eigen time-out (25 s+).
+    // Door onze verbindingsgegevens te wissen ziet hij dat meteen (zie onSigRemoved) en maakt hij een nieuw aanbod.
+    if (role === 'answer') { deleteDoc(doc(sigCol(c.sid, c.cid), uid + '_' + S.me.uid)).catch(() => {}); return; }
+    const n = c.retries[uid] = (c.retries[uid] || 0) + 1;
+    if (n === MAX_RETRY + 1) X.toast('De verbinding met een deelnemer lukt nog niet. We blijven het proberen.');
+    const wait = Math.min(20000, 2000 + n * 1500);
+    c.nextTry[uid] = Date.now() + wait;
+    setTimeout(() => { if (state.cur === c) reconcile(); }, wait + 50);
+  }
+  // pb31: de ander heeft onze verbindingsgegevens gewist: hij is opnieuw binnengekomen of zijn kant gaf het op. Onze verbinding met hem is dan dood,
+  // ook als die er nog "verbonden" uitziet. Laat los en maak meteen een nieuw aanbod (alleen als ons aanbod er al echt was: een wissing van een ouder
+  // document zegt niets over een aanbod dat nog onderweg is).
+  function onSigRemoved(c, id) {
+    const me = S.me?.uid; if (!me || state.cur !== c || c.closing || !id.startsWith(me + '_')) return;
+    const uid = id.slice(me.length + 1), p = c.peers.get(uid);
+    if (!p || p.role !== 'offer' || !p.sent) return;
+    dropPeer(c, uid); c.nextTry[uid] = 0;
+    setTimeout(() => { if (state.cur === c) reconcile(); }, 300);
+  }
+  // pb31: vangnet naast de realtime-gebeurtenissen (bij PocketBase). Een gemiste gebeurtenis (korte onderbreking, telefoon even op de achtergrond)
+  // betekende: iemands scherm of aanbod nooit zien. Nu kijken we elke paar seconden zelf opnieuw. Alles wat hier binnenkomt is veilig om twee keer te
+  // verwerken (zelfde nonce = genegeerd); een uitslag die ouder is dan een realtime-gebeurtenis die er intussen was, gooien we weg.
+  async function pollNow(c) {
+    if (state.cur !== c || c.closing || c.status !== 'connected' || c.polling) return;
+    const me = S.me?.uid, k = key(c.sid, c.cid); if (!me) return;
+    const others = people(c.sid, c.cid).filter(p => p.uid !== me);
+    const allUp = others.every(p => c.peers.get(p.uid)?.connected);
+    if (allUp && Date.now() - c.lastPoll < POLL_SLOW_MS - 500) return;
+    c.polling = true; c.lastPoll = Date.now();
+    const t0 = Date.now();
+    try {
+      const [pres, to, from] = await Promise.all([
+        getDocs(presCol(c.sid, c.cid)),
+        getDocs(query(sigCol(c.sid, c.cid), where('to', '==', me))),
+        getDocs(query(sigCol(c.sid, c.cid), where('from', '==', me)))
+      ]);
+      if (state.cur !== c || c.closing) return;
+      if ((state.stamp.get(k) || 0) < t0) onRoster(k, pres);
+      if (c.sigStamp < t0) {
+        for (const d of to.docs) {
+          const v = d.data(); if (!v || !v.offer || v.answer || !v.from) continue;
+          const old = c.peers.get(v.from);
+          if (!old || (!old.connected && old.nonce !== v.nonce && Date.now() - old.created > 6000)) onOffer(c, d);   // een aanbod gemist (of het onze loopt vast op een oud aanbod)
+        }
+        for (const d of from.docs) onAnswer(c, d);   // een antwoord gemist
+      }
+    } catch (e) { /* even geen verbinding: volgende ronde */ }
+    finally { c.polling = false; }
   }
   async function startOffer(c, uid) {
     const me = S.me.uid, nonce = Math.random().toString(36).slice(2, 12);
@@ -383,11 +443,12 @@ export function createVoice(X) {
     try {
       await attachShare(c, p);
       await p.pc.setLocalDescription(await p.pc.createOffer());
-      await gathered(p.pc);
+      await gathered(p.pc, c.relay);
       if (c.peers.get(uid) !== p) return;
       await setDoc(doc(sigCol(c.sid, c.cid), me + '_' + uid), {
         from: me, to: uid, nonce, offer: { type: p.pc.localDescription.type, sdp: p.pc.localDescription.sdp }, createdAt: serverTimestamp()
       });
+      p.sent = true;
     } catch (e) { if (c.peers.get(uid) === p) failPeer(c, uid); }
   }
   async function onAnswer(c, d) {
@@ -412,7 +473,7 @@ export function createVoice(X) {
       if (at) { at.direction = 'sendrecv'; p.asender = at.sender; }
       await attachShare(c, p);
       await p.pc.setLocalDescription(await p.pc.createAnswer());
-      await gathered(p.pc);
+      await gathered(p.pc, c.relay);
       if (c.peers.get(v.from) !== p) return;
       await updateDoc(d.ref, { answer: { type: p.pc.localDescription.type, sdp: p.pc.localDescription.sdp } });
     } catch (e) { if (c.peers.get(v.from) === p) failPeer(c, v.from); }
